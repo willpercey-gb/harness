@@ -25,3 +25,7 @@ dist-ssr
 
 # Rust workspace
 target/
+
+# Yarn (using yarn.lock)
+.yarn/
+.pnp.*
