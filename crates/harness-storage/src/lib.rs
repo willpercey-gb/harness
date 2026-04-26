@@ -1,5 +1,6 @@
 //! SurrealDB-backed storage for harness chat sessions and messages.
 
+pub mod context_store;
 pub mod db;
 pub mod error;
 pub mod memory;
@@ -8,6 +9,7 @@ pub mod schema;
 pub mod sessions;
 pub mod settings;
 
+pub use context_store::{ContextCard, ConversationContext};
 pub use db::{default_db_path, init_db, init_in_memory, HarnessDb};
 pub use error::{Result, StorageError};
 pub use messages::ChatMessage;
@@ -105,6 +107,62 @@ mod tests {
         assert!(loaded.openrouter_enabled());
         assert!(loaded.http_fetch_allows("EXAMPLE.com"));
         assert!(!loaded.http_fetch_allows("evil.com"));
+    }
+
+    #[tokio::test]
+    async fn context_default_when_session_has_none() {
+        let db = fresh().await;
+        let s = sessions::create(&db, "t", "ollama:x").await.unwrap();
+        let ctx = context_store::load(&db, &s.id.id.to_string()).await.unwrap();
+        assert!(ctx.anchor.is_none());
+        assert!(ctx.priorities.is_empty());
+        assert!(ctx.asides.is_empty());
+        assert!(ctx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn context_round_trip() {
+        let db = fresh().await;
+        let s = sessions::create(&db, "t", "ollama:x").await.unwrap();
+        let id = s.id.id.to_string();
+        let ctx = ConversationContext {
+            anchor: Some("plan a 4-day Lisbon trip".into()),
+            priorities: vec![
+                ContextCard::new("4-day duration"),
+                ContextCard::edited("budget under £500"),
+            ],
+            asides: vec![ContextCard::new("note: timezone is GMT+0")],
+            updated_at: None,
+        };
+        context_store::save(&db, &id, &ctx).await.unwrap();
+        let loaded = context_store::load(&db, &id).await.unwrap();
+        assert_eq!(loaded.anchor.as_deref(), Some("plan a 4-day Lisbon trip"));
+        assert_eq!(loaded.priorities.len(), 2);
+        assert!(loaded.priorities[1].edited_by_user);
+        assert_eq!(loaded.asides.len(), 1);
+        assert!(loaded.updated_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn context_save_overwrites() {
+        let db = fresh().await;
+        let s = sessions::create(&db, "t", "ollama:x").await.unwrap();
+        let id = s.id.id.to_string();
+        let ctx_a = ConversationContext {
+            anchor: Some("first".into()),
+            priorities: vec![ContextCard::new("p1")],
+            ..Default::default()
+        };
+        context_store::save(&db, &id, &ctx_a).await.unwrap();
+        let ctx_b = ConversationContext {
+            anchor: Some("second".into()),
+            priorities: vec![],
+            ..Default::default()
+        };
+        context_store::save(&db, &id, &ctx_b).await.unwrap();
+        let loaded = context_store::load(&db, &id).await.unwrap();
+        assert_eq!(loaded.anchor.as_deref(), Some("second"));
+        assert!(loaded.priorities.is_empty());
     }
 
     #[tokio::test]
