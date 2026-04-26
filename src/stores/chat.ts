@@ -1,0 +1,40 @@
+import { defineStore } from 'pinia'
+import type { Agent, ChatSession } from '@/types/chat.types'
+
+export const useChatStore = defineStore('chat', {
+  state: () => ({
+    selectedAgentId: null as string | null,
+    selectedAgent: null as Agent | null,
+    currentSessionId: null as string | null,
+    pendingTitle: null as string | null,
+    /** Bumped whenever the session list should be re-fetched. */
+    sessionsBumper: 0,
+    /** Bumped whenever the chat page should reload current history. */
+    historyBumper: 0,
+  }),
+  actions: {
+    selectAgent(agent: Agent) {
+      this.selectedAgent = agent
+      this.selectedAgentId = agent.id
+      this.currentSessionId = null
+      this.historyBumper++
+    },
+    openSession(s: ChatSession) {
+      this.currentSessionId = s.sessionId
+      this.pendingTitle = s.title
+      this.historyBumper++
+    },
+    newChat() {
+      this.currentSessionId = null
+      this.pendingTitle = null
+      this.historyBumper++
+    },
+    bumpSessions() { this.sessionsBumper++ },
+    setSessionFromStream(sessionId: string) {
+      if (!this.currentSessionId) {
+        this.currentSessionId = sessionId
+        this.bumpSessions()
+      }
+    },
+  },
+})

@@ -1,20 +1,12 @@
 <script lang="ts">
 import { defineComponent, nextTick } from 'vue'
 import {
-  getAgents,
   streamChat,
   getChatHistory,
-  getSessions,
-  deleteSession,
   type StreamHandle,
 } from '@/services/chat'
-import type {
-  Agent,
-  ChatMessage,
-  ChatSession,
-  StreamEvent,
-  ToolEvent,
-} from '@/types/chat.types'
+import { useChatStore } from '@/stores/chat'
+import type { ChatMessage, StreamEvent, ToolEvent } from '@/types/chat.types'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -27,12 +19,9 @@ import css from 'highlight.js/lib/languages/css'
 import sql from 'highlight.js/lib/languages/sql'
 import yaml from 'highlight.js/lib/languages/yaml'
 import markdown from 'highlight.js/lib/languages/markdown'
-import 'highlight.js/styles/github-dark.css'
+import 'highlight.js/styles/atom-one-dark.css'
 
-import ToolUseChip from '@/components/chat/ToolUseChip.vue'
-import ToolResultChip from '@/components/chat/ToolResultChip.vue'
-import ReasoningBlock from '@/components/chat/ReasoningBlock.vue'
-import StreamingIndicator from '@/components/chat/StreamingIndicator.vue'
+import AgentSelector from '@/components/AgentSelector.vue'
 
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('typescript', typescript)
@@ -56,9 +45,7 @@ const md = new MarkdownIt({
           hljs.highlight(str, { language, ignoreIllegals: true }).value +
           '</code></pre>'
         )
-      } catch (_) {
-        // fall through
-      }
+      } catch (_) {}
     }
     return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>'
   },
@@ -66,140 +53,77 @@ const md = new MarkdownIt({
 
 export default defineComponent({
   name: 'ChatPage',
-  components: { ToolUseChip, ToolResultChip, ReasoningBlock, StreamingIndicator },
+  components: { AgentSelector },
+  setup() {
+    return { chat: useChatStore() }
+  },
   data() {
     return {
-      agents: [] as Agent[],
-      selectedAgent: null as Agent | null,
-      currentSessionId: null as string | null,
-      sessions: [] as ChatSession[],
       messages: [] as ChatMessage[],
       currentMessage: '',
-      loading: false,
       streaming: false,
+      thinking: false,
       error: '',
       messageIdCounter: 0,
-      selectedTab: 'all',
-      selectedProvider: 'all',
       autoScroll: true,
-      thinking: false,
-      loadingHistory: false,
+      historyLimit: 50,
       hasMoreHistory: false,
       historyOffset: 0,
-      historyLimit: 50,
-      showSessions: false,
-      loadingSessions: false,
+      loadingHistory: false,
       currentStream: null as StreamHandle | null,
+      title: '' as string,
     }
   },
   computed: {
-    filteredAgents(): Agent[] {
-      let filtered = this.agents
-      if (this.selectedTab !== 'all') {
-        filtered = filtered.filter((a) => a.type === this.selectedTab)
-      }
-      if (this.selectedProvider !== 'all') {
-        filtered = filtered.filter(
-          (a) => a.attributes.provider.toLowerCase() === this.selectedProvider,
-        )
-      }
-      return filtered
+    agentName(): string {
+      return this.chat.selectedAgent?.attributes.name ?? '—'
     },
-    agentTypeCounts(): Record<string, number> {
-      const counts: Record<string, number> = {
-        all: this.agents.length,
-        agent: 0,
-        swarm: 0,
-        graph: 0,
-        a2a: 0,
-        distributed: 0,
-      }
-      this.agents.forEach((a) => {
-        if (counts[a.type] !== undefined) counts[a.type]++
-      })
-      return counts
-    },
-    providerCounts(): Record<string, number> {
-      const counts: Record<string, number> = {
-        all: this.agents.length,
-        ollama: 0,
-        openrouter: 0,
-        bedrock: 0,
-        vertex: 0,
-        openai: 0,
-      }
-      this.agents.forEach((a) => {
-        const p = a.attributes.provider.toLowerCase()
-        if (counts[p] !== undefined) counts[p]++
-      })
-      return counts
+    agentLabel(): string {
+      return (this.chat.selectedAgent?.attributes.name ?? 'agent').replace(/[^a-z0-9]/gi, '').slice(0, 12).toUpperCase() || 'AGENT'
     },
   },
-  async mounted() {
-    await this.loadAgents()
+  watch: {
+    'chat.historyBumper'() {
+      this.title = this.chat.pendingTitle ?? ''
+      this.loadHistory()
+    },
+  },
+  mounted() {
+    if (this.chat.currentSessionId) this.loadHistory()
   },
   methods: {
-    async loadAgents() {
-      try {
-        this.loading = true
-        this.error = ''
-        this.agents = await getAgents()
-        if (this.agents.length > 0 && !this.selectedAgent) {
-          await this.selectAgent(this.agents[0])
-        }
-      } catch (e: any) {
-        this.error = e?.message || String(e) || 'Failed to load agents'
-      } finally {
-        this.loading = false
-      }
-    },
-    async selectAgent(agent: Agent) {
-      if (agent.attributes.disabled) return
-      this.selectedAgent = agent
-      this.currentSessionId = null
+    async loadHistory() {
       this.messages = []
+      this.historyOffset = 0
       this.hasMoreHistory = false
-      this.historyOffset = 0
-      await this.loadSessions()
-      nextTick(() => this.scrollToBottom())
-    },
-    async loadSessions() {
-      if (!this.selectedAgent) return
-      try {
-        this.loadingSessions = true
-        const res = await getSessions(this.selectedAgent.id, 50, 0)
-        this.sessions = res.data
-      } catch {
-        this.sessions = []
-      } finally {
-        this.loadingSessions = false
-      }
-    },
-    async selectSession(session: ChatSession) {
-      if (this.streaming || this.currentSessionId === session.sessionId) return
-      this.currentSessionId = session.sessionId
+      this.error = ''
+      if (!this.chat.currentSessionId) return
       this.loadingHistory = true
-      this.historyOffset = 0
       try {
-        const res = await getChatHistory(session.sessionId, this.historyLimit, 0)
-        this.messages = res.messages
+        const res = await getChatHistory(
+          this.chat.currentSessionId,
+          this.historyLimit,
+          0,
+        )
+        this.messages = res.messages.map((m) => ({
+          ...m,
+          id: m.id || `m-${this.messageIdCounter++}`,
+        }))
         this.hasMoreHistory = res.hasMore
         this.historyOffset = res.messages.length
       } catch {
         this.messages = []
-        this.hasMoreHistory = false
-        this.historyOffset = 0
       } finally {
         this.loadingHistory = false
+        nextTick(() => this.scrollToBottom())
       }
-      nextTick(() => this.scrollToBottom())
     },
     async loadMoreHistory() {
-      if (!this.currentSessionId || this.loadingHistory || !this.hasMoreHistory) return
+      if (!this.chat.currentSessionId || this.loadingHistory || !this.hasMoreHistory) return
       this.loadingHistory = true
       try {
         const res = await getChatHistory(
-          this.currentSessionId,
+          this.chat.currentSessionId,
           this.historyLimit,
           this.historyOffset,
         )
@@ -212,66 +136,32 @@ export default defineComponent({
         this.loadingHistory = false
       }
     },
-    async startNewChat() {
-      if (!this.selectedAgent || this.streaming) return
-      this.currentSessionId = null
-      this.messages = []
-      this.hasMoreHistory = false
-      this.historyOffset = 0
-      nextTick(() => this.scrollToBottom())
-    },
-    async deleteCurrentSession() {
-      if (!this.currentSessionId || this.streaming) return
-      try {
-        await deleteSession(this.currentSessionId)
-        this.currentSessionId = null
-        this.messages = []
-        await this.loadSessions()
-      } catch (e: any) {
-        this.error = e?.message || 'Failed to delete session'
-      }
-    },
-    toggleSessions() {
-      this.showSessions = !this.showSessions
-    },
-    formatSessionDate(dateString: string): string {
-      const date = new Date(dateString)
-      const now = new Date()
-      const diffMins = Math.floor((now.getTime() - date.getTime()) / 60000)
-      if (diffMins < 1) return 'Just now'
-      if (diffMins < 60) return `${diffMins}m ago`
-      const diffHours = Math.floor(diffMins / 60)
-      if (diffHours < 24) return `${diffHours}h ago`
-      const diffDays = Math.floor(diffHours / 24)
-      if (diffDays < 7) return `${diffDays}d ago`
-      return date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
-    },
     async sendMessage() {
-      if (!this.currentMessage.trim() || !this.selectedAgent || this.streaming) return
-
+      if (!this.currentMessage.trim() || !this.chat.selectedAgent || this.streaming) return
       const prompt = this.currentMessage
       this.currentMessage = ''
 
-      const userMessage: ChatMessage = {
-        id: `msg-${this.messageIdCounter++}`,
+      this.messages.push({
+        id: `m-${this.messageIdCounter++}`,
         role: 'user',
         content: prompt,
         timestamp: new Date(),
-        agentId: this.selectedAgent.id,
-      }
-      this.messages.push(userMessage)
+        agentId: this.chat.selectedAgent.id,
+      })
 
-      const assistantIndex = this.messages.length
-      const assistant: ChatMessage = {
-        id: `msg-${this.messageIdCounter++}`,
+      const idx = this.messages.length
+      this.messages.push({
+        id: `m-${this.messageIdCounter++}`,
         role: 'assistant',
         content: '',
         reasoning: '',
         toolEvents: [],
         timestamp: new Date(),
-        agentId: this.selectedAgent.id,
-      }
-      this.messages.push(assistant)
+        agentId: this.chat.selectedAgent.id,
+      })
+
+      // Title-from-first-prompt for in-flight conversations.
+      if (!this.title) this.title = prompt.slice(0, 60)
 
       this.streaming = true
       this.error = ''
@@ -279,19 +169,16 @@ export default defineComponent({
       this.autoScroll = true
 
       const handle = streamChat(
-        this.selectedAgent.id,
+        this.chat.selectedAgent.id,
         prompt,
-        this.currentSessionId,
-        (e: StreamEvent) => this.onStreamEvent(assistantIndex, e),
+        this.chat.currentSessionId,
+        (e: StreamEvent) => this.onStreamEvent(idx, e),
       )
       this.currentStream = handle
 
       try {
         const { sessionId } = await handle.done
-        if (sessionId && !this.currentSessionId) {
-          this.currentSessionId = sessionId
-          await this.loadSessions()
-        }
+        if (sessionId) this.chat.setSessionFromStream(sessionId)
       } catch (err: any) {
         this.error = err?.message || String(err) || 'send failed'
       } finally {
@@ -305,7 +192,7 @@ export default defineComponent({
       if (!msg) return
       switch (e.kind) {
         case 'session_started':
-          if (!this.currentSessionId) this.currentSessionId = e.session_id
+          this.chat.setSessionFromStream(e.session_id)
           break
         case 'text_delta':
           msg.content += e.text
@@ -322,12 +209,7 @@ export default defineComponent({
         case 'tool_result':
           msg.toolEvents = [
             ...(msg.toolEvents ?? []),
-            {
-              kind: 'tool_result',
-              name: e.name,
-              id: e.id,
-              status: e.status,
-            } as ToolEvent,
+            { kind: 'tool_result', name: e.name, id: e.id, status: e.status } as ToolEvent,
           ]
           break
         case 'thinking':
@@ -338,721 +220,600 @@ export default defineComponent({
           break
         case 'done':
         case 'cancelled':
-          // terminal events handled by handle.done resolving
           break
       }
       nextTick(() => this.scrollToBottom())
     },
     async cancel() {
-      if (!this.currentStream) return
-      await this.currentStream.cancel()
+      await this.currentStream?.cancel()
     },
     scrollToBottom() {
       if (!this.autoScroll) return
-      const container = this.$refs.messagesContainer as HTMLElement | undefined
-      if (container) container.scrollTop = container.scrollHeight
+      const el = this.$refs.scroller as HTMLElement | undefined
+      if (el) el.scrollTop = el.scrollHeight
     },
     handleScroll() {
-      const container = this.$refs.messagesContainer as HTMLElement | undefined
-      if (!container) return
-      const threshold = 50
-      this.autoScroll =
-        container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+      const el = this.$refs.scroller as HTMLElement | undefined
+      if (!el) return
+      this.autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     },
-    handleKeydown(event: KeyboardEvent) {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault()
+    handleKeydown(ev: KeyboardEvent) {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault()
         this.sendMessage()
       }
     },
-    formatTime(date: Date): string {
-      return new Date(date).toLocaleTimeString('en-GB', {
+    formatTime(d: Date | string): string {
+      return new Date(d).toLocaleTimeString('en-GB', {
         hour: '2-digit',
         minute: '2-digit',
       })
     },
-    getCostLabel(cost: string): string {
-      const labels: Record<string, string> = {
-        free: 'Free',
-        'very-low': 'Very Low',
-        low: 'Low',
-        medium: 'Med',
-        high: 'High',
-        'very-high': 'V.High',
-        uncalculated: '?',
-      }
-      return labels[cost] || cost
+    renderMarkdown(s: string): string {
+      return md.render(s)
     },
-    getTypeLabel(type: string): string {
-      const labels: Record<string, string> = {
-        agent: 'Agent',
-        swarm: 'Swarm',
-        graph: 'Graph',
-        a2a: 'A2A',
-        distributed: 'Dist.',
-      }
-      return labels[type] || type
-    },
-    renderMarkdown(content: string): string {
-      return md.render(content)
+    speakerLabel(role: string, agentName: string | undefined): string {
+      if (role === 'user') return 'YOU'
+      if (role === 'system') return 'SYSTEM'
+      return (agentName ?? 'agent').replace(/[^a-z0-9]/gi, '').slice(0, 18).toUpperCase() || 'AGENT'
     },
   },
 })
 </script>
 
 <template>
-  <div class="chat-agents-page">
-    <div v-if="error" class="error-message">
-      {{ error }}
-      <span
-        class="material-symbols-outlined"
-        style="cursor: pointer; margin-left: auto"
-        @click="error = ''"
-        >close</span
-      >
+  <div class="page">
+    <header class="masthead">
+      <div class="title-row">
+        <h1 class="title" v-if="title || chat.currentSessionId">
+          <span v-if="title">{{ title }}</span>
+          <span v-else class="muted">Untitled</span>
+        </h1>
+        <h1 class="title untitled" v-else>
+          <span class="amp">¶</span>
+          new conversation
+        </h1>
+      </div>
+      <div class="meta-row">
+        <AgentSelector />
+        <div class="timing" v-if="chat.currentSessionId">
+          <span class="eyebrow">session</span>
+          <span class="hash">{{ chat.currentSessionId.slice(0, 8) }}</span>
+        </div>
+      </div>
+    </header>
+
+    <div v-if="error" class="banner-error">
+      <span>{{ error }}</span>
+      <button @click="error = ''">dismiss</button>
     </div>
 
-    <div v-if="loading" class="loading-message">Loading agents...</div>
+    <section class="scroller" ref="scroller" @scroll="handleScroll">
+      <div class="column">
+        <button
+          v-if="hasMoreHistory && messages.length > 0"
+          class="load-more"
+          @click="loadMoreHistory"
+          :disabled="loadingHistory"
+        >
+          {{ loadingHistory ? 'loading…' : '↑ earlier in this conversation' }}
+        </button>
 
-    <div v-if="!loading && agents.length === 0" class="loading-message">
-      No agents found. Is Ollama running locally?
-    </div>
-
-    <div v-if="!loading && agents.length > 0" class="chat-container">
-      <!-- Agent Sidebar -->
-      <div class="agents-sidebar">
-        <div class="sidebar-header">
-          <h3>Available Agents</h3>
+        <div v-if="messages.length === 0 && !loadingHistory" class="empty-state">
+          <p class="lead">
+            <span class="drop-cap">A</span> blank page — type below to begin.
+          </p>
+          <p class="hint">
+            Conversations are saved automatically and live in the rail to the left.
+          </p>
         </div>
 
-        <div class="filter-section">
-          <label class="filter-label">Type:</label>
-          <div class="agent-tabs">
-            <button
-              v-for="tab in ['all', 'agent', 'swarm', 'graph', 'a2a', 'distributed']"
-              :key="tab"
-              class="tab-button"
-              :class="{ active: selectedTab === tab }"
-              @click="selectedTab = tab"
-            >
-              {{
-                tab === 'all'
-                  ? `All (${agentTypeCounts.all})`
-                  : `${getTypeLabel(tab)} (${agentTypeCounts[tab]})`
-              }}
-            </button>
+        <article
+          v-for="(m, i) in messages"
+          :key="m.id"
+          class="turn"
+          :class="m.role"
+        >
+          <header class="turn-head">
+            <span class="speaker">{{ speakerLabel(m.role, chat.selectedAgent?.attributes.name) }}</span>
+            <span class="dot">·</span>
+            <span class="time">{{ formatTime(m.timestamp) }}</span>
+          </header>
+
+          <div v-if="m.reasoning" class="reasoning">
+            <div class="reasoning-head">
+              <span class="eyebrow">reasoning</span>
+              <span class="rule"></span>
+            </div>
+            <div class="reasoning-body">{{ m.reasoning }}</div>
           </div>
-        </div>
 
-        <div class="filter-section">
-          <label class="filter-label">Provider:</label>
-          <div class="provider-filters">
-            <button
-              v-for="prov in ['all', 'ollama', 'openrouter', 'bedrock', 'vertex', 'openai']"
-              :key="prov"
-              class="filter-button"
-              :class="[`provider-${prov}`, { active: selectedProvider === prov }]"
-              @click="selectedProvider = prov"
+          <ul v-if="m.toolEvents && m.toolEvents.length" class="tools">
+            <li
+              v-for="(t, j) in m.toolEvents"
+              :key="j"
+              :class="['tool', t.kind, t.kind === 'tool_result' ? `status-${t.status}` : '']"
             >
-              {{
-                prov === 'all'
-                  ? `All (${providerCounts.all})`
-                  : `${prov.charAt(0).toUpperCase() + prov.slice(1)} (${providerCounts[prov]})`
-              }}
-            </button>
-          </div>
-        </div>
+              <span class="arrow" v-if="t.kind === 'tool_use'">→</span>
+              <span class="arrow" v-else-if="t.kind === 'tool_result'">←</span>
+              <span class="t-name">{{ t.name }}</span>
+              <span v-if="t.kind === 'tool_result'" class="t-status">{{ t.status }}</span>
+            </li>
+          </ul>
 
-        <div class="agents-list">
           <div
-            v-for="agent in filteredAgents"
-            :key="agent.id"
-            class="agent-card"
-            :class="{
-              selected: selectedAgent?.id === agent.id,
-              disabled: agent.attributes.disabled,
-            }"
-            @click="selectAgent(agent)"
+            v-if="m.role === 'user'"
+            class="prose user-prose"
+          >{{ m.content }}</div>
+          <div
+            v-else-if="m.content"
+            class="prose assistant-prose"
+            v-html="renderMarkdown(m.content)"
+          ></div>
+          <div
+            v-else-if="streaming && i === messages.length - 1"
+            class="prose pending"
           >
-            <div class="agent-name">
-              {{ agent.attributes.name }}
-              <span
-                v-if="agent.attributes.disabled"
-                class="disabled-indicator material-symbols-outlined"
-                >block</span
-              >
-            </div>
-            <div class="agent-badges">
-              <span class="type-badge" :class="`type-${agent.type}`">
-                {{ getTypeLabel(agent.type) }}
-              </span>
-              <span v-if="agent.attributes.parameters" class="power-badge">
-                {{ agent.attributes.parameters }}B
-              </span>
-              <span class="cost-badge" :class="`cost-${agent.attributes.cost}`">
-                <span class="cost-icon">$</span>
-                {{ getCostLabel(agent.attributes.cost) }}
-              </span>
-            </div>
-            <div class="agent-description">
-              {{ agent.attributes.description }}
-            </div>
-            <div class="agent-footer">
-              <span
-                class="agent-provider"
-                :class="`provider-${agent.attributes.provider.toLowerCase()}`"
-                >{{ agent.attributes.provider }}</span
-              >
-            </div>
+            <span v-if="thinking" class="thinking-text">— thinking</span>
+            <span v-else class="caret"></span>
           </div>
+        </article>
+
+        <div v-if="streaming && messages[messages.length-1]?.role === 'assistant' && messages[messages.length-1]?.content" class="trailing-caret">
+          <span class="caret"></span>
         </div>
       </div>
+    </section>
 
-      <!-- Chat Area -->
-      <div class="chat-area">
-        <div class="chat-header">
-          <div v-if="selectedAgent" class="selected-agent-info">
-            <h2>{{ selectedAgent.attributes.name }}</h2>
-            <p>{{ selectedAgent.attributes.description }}</p>
-          </div>
-          <div class="header-actions">
-            <button
-              class="button button-sessions"
-              @click="toggleSessions"
-              :disabled="!selectedAgent"
-            >
-              <span class="material-symbols-outlined">history</span>
-              {{ showSessions ? 'Hide' : 'Sessions' }}
-            </button>
-            <button
-              class="button button-new-chat"
-              @click="startNewChat"
-              :disabled="!selectedAgent || streaming"
-            >
-              <span class="material-symbols-outlined">add_circle</span>
-              New
-            </button>
-            <button
-              v-if="currentSessionId"
-              class="button button-clear"
-              @click="deleteCurrentSession"
-              :disabled="streaming"
-            >
-              <span class="material-symbols-outlined">delete</span>
-              Delete
-            </button>
-          </div>
+    <footer class="composer">
+      <div class="composer-inner">
+        <div class="composer-rail">
+          <span class="prompt-glyph">▷</span>
         </div>
-
-        <div v-if="showSessions" class="sessions-panel">
-          <div class="sessions-header">
-            <h3>Sessions ({{ sessions.length }})</h3>
-          </div>
-          <div v-if="loadingSessions" class="sessions-empty">Loading...</div>
-          <div v-else-if="sessions.length === 0" class="sessions-empty">
-            No previous sessions.
-          </div>
-          <div v-else class="sessions-list">
-            <div
-              v-for="s in sessions"
-              :key="s.sessionId"
-              class="session-item"
-              :class="{ active: currentSessionId === s.sessionId }"
-              @click="selectSession(s)"
-            >
-              <div class="session-header-row">
-                <span class="session-title">{{ s.title || 'Untitled' }}</span>
-                <span class="session-date">{{ formatSessionDate(s.lastMessageAt) }}</span>
-              </div>
-              <div class="session-meta">
-                <span class="session-messages">
-                  <span class="material-symbols-outlined">chat</span>
-                  {{ s.messageCount }} messages
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="messages-container" ref="messagesContainer" @scroll="handleScroll">
-          <div v-if="hasMoreHistory && messages.length > 0" class="load-more-container">
-            <button
-              class="button button-load-more"
-              @click="loadMoreHistory"
-              :disabled="loadingHistory"
-            >
-              <span class="material-symbols-outlined">expand_less</span>
-              {{ loadingHistory ? 'Loading...' : 'Load more history' }}
-            </button>
-          </div>
-
-          <div v-if="messages.length === 0 && !loadingHistory" class="empty-state">
-            <span class="material-symbols-outlined">chat</span>
-            <p>Start a conversation with {{ selectedAgent?.attributes.name }}</p>
-          </div>
-
-          <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
-            <div class="message-meta">
-              <span class="message-role">{{
-                message.role === 'user' ? 'You' : selectedAgent?.attributes.name
-              }}</span>
-              <span class="message-time">{{ formatTime(message.timestamp) }}</span>
-            </div>
-            <div class="message-content">
-              <ReasoningBlock v-if="message.reasoning" :content="message.reasoning" />
-              <template v-for="(t, i) in message.toolEvents || []" :key="i">
-                <ToolUseChip v-if="t.kind === 'tool_use'" :name="t.name" />
-                <ToolResultChip
-                  v-else-if="t.kind === 'tool_result'"
-                  :name="t.name"
-                  :status="t.status"
-                />
-              </template>
-              <div
-                v-if="message.role === 'user'"
-                class="user-content"
-              >{{ message.content }}</div>
-              <div
-                v-else
-                class="assistant-content"
-                v-html="renderMarkdown(message.content)"
-              ></div>
-            </div>
-          </div>
-
-          <StreamingIndicator v-if="streaming" :thinking="thinking" />
-        </div>
-
-        <div class="input-area">
-          <textarea
-            v-model="currentMessage"
-            class="message-input"
-            placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-            rows="3"
-            :disabled="streaming || !selectedAgent"
-            @keydown="handleKeydown"
-          ></textarea>
-          <div class="input-actions">
-            <button
-              v-if="streaming"
-              class="button button-cancel"
-              @click="cancel"
-            >
-              <span class="material-symbols-outlined">stop_circle</span>
-              Cancel
-            </button>
-            <button
-              v-else
-              class="button button-send"
-              @click="sendMessage"
-              :disabled="!currentMessage.trim() || !selectedAgent"
-            >
-              Send
-            </button>
-          </div>
+        <textarea
+          v-model="currentMessage"
+          class="composer-input"
+          rows="1"
+          :placeholder="chat.selectedAgent ? 'Type a message — Enter to send, Shift+Enter for newline.' : 'Pick an agent above to begin.'"
+          :disabled="streaming || !chat.selectedAgent"
+          @keydown="handleKeydown"
+        ></textarea>
+        <div class="composer-actions">
+          <button
+            v-if="streaming"
+            class="action cancel"
+            @click="cancel"
+            title="Cancel stream"
+          >
+            <span class="material-symbols-outlined">stop_circle</span>
+            cancel
+          </button>
+          <button
+            v-else
+            class="action send"
+            :disabled="!currentMessage.trim() || !chat.selectedAgent"
+            @click="sendMessage"
+          >
+            send
+            <span class="kbd">⏎</span>
+          </button>
         </div>
       </div>
-    </div>
+    </footer>
   </div>
 </template>
 
 <style scoped lang="scss">
-.chat-agents-page {
-  display: flex;
-  flex-direction: column;
+.page {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
   height: 100%;
-  width: 100%;
-}
-.error-message {
-  background-color: #f8d7da;
-  color: #721c24;
-  padding: 10px 14px;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  border: 1px solid #f5c6cb;
-  display: flex;
-  align-items: center;
-  font-size: 13px;
-}
-.loading-message {
-  color: var(--inactive-color);
-  text-align: center;
-  padding: 40px;
-  font-size: 14px;
+  background-color: var(--bg);
 }
 
-.chat-container {
+// — Masthead —————————————————————————————————————————————————
+.masthead {
+  padding: 28px 56px 18px;
+  border-bottom: 1px solid var(--rule);
   display: flex;
+  flex-direction: column;
   gap: 16px;
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
 }
-
-// Sidebar -----------------------------------------------------------------
-.agents-sidebar {
-  width: 260px;
-  background-color: var(--projects-section);
-  border: 1px solid var(--message-box-border);
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow: hidden;
-
-  h3 {
-    margin: 0;
-    color: var(--secondary-color);
-    font-size: 14px;
-    font-weight: 700;
+.title-row { display: flex; align-items: baseline; gap: 16px; }
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 30px;
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+  color: var(--ink);
+  font-feature-settings: 'kern', 'liga', 'calt';
+  &.untitled {
+    font-style: italic;
+    color: var(--ink-muted);
+    font-weight: 300;
+  }
+  .muted { color: var(--ink-faint); font-style: italic; }
+  .amp {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+    margin-right: 8px;
   }
 }
-.filter-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--inactive-color);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 5px;
-}
-.agent-tabs,
-.provider-filters {
+.meta-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 28px;
 }
-.tab-button,
-.filter-button {
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  background-color: var(--projects-section);
-  color: var(--inactive-color);
-  border: 1px solid var(--message-box-border);
-  border-radius: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
-  &:hover {
-    background-color: var(--hover-menu-bg);
-  }
-  &.active {
-    background-color: var(--link-color);
-    color: white;
-    border-color: var(--link-color);
-  }
-  &.provider-ollama.active { background-color: #8B5CF6; border-color: #8B5CF6; }
-  &.provider-openrouter.active { background-color: #16a34a; border-color: #16a34a; }
-  &.provider-bedrock.active { background-color: #FF9900; color: #232F3E; border-color: #FF9900; }
-  &.provider-vertex.active { background-color: #4285F4; border-color: #4285F4; }
-  &.provider-openai.active { background-color: #10a37f; border-color: #10a37f; }
-}
-.agents-list {
-  display: flex;
-  flex-direction: column;
+.timing {
+  display: inline-flex;
+  align-items: baseline;
   gap: 6px;
-  overflow-y: auto;
-  padding-right: 6px;
-  flex: 1;
-  min-height: 0;
-}
-.agent-card {
-  background-color: var(--projects-section);
-  border: 1px solid var(--message-box-border);
-  border-radius: 6px;
-  padding: 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-  &:hover:not(.disabled) {
-    border-color: var(--link-color);
-    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.12);
-  }
-  &.selected {
-    border-color: #28a745;
-    background-color: rgba(40, 167, 69, 0.07);
-  }
-  &.disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-  .agent-name {
-    font-weight: 700;
-    font-size: 13px;
-    color: var(--main-color);
-    line-height: 1.2;
-    margin-bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    .disabled-indicator { font-size: 14px; color: #dc3545; }
-  }
-  .agent-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    margin-bottom: 4px;
-  }
-  .agent-description {
+  margin-left: auto;
+  .eyebrow {
+    font-family: var(--font-mono);
     font-size: 10px;
-    color: var(--inactive-color);
-    margin-bottom: 4px;
-    line-height: 1.3;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    letter-spacing: 0.18em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
   }
-}
-.type-badge {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  &.type-agent { background-color: #e3f2fd; color: #1565c0; }
-  &.type-swarm { background-color: #f3e5f5; color: #6a1b9a; }
-  &.type-graph { background-color: #e8f5e9; color: #2e7d32; }
-  &.type-a2a { background-color: #fff3e0; color: #e65100; }
-  &.type-distributed { background-color: #e0f2f1; color: #00695c; }
-}
-.power-badge {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 8px;
-  background-color: #e7f1ff;
-  color: #004085;
-}
-.cost-badge {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  &.cost-free { background-color: #d4edda; color: #155724; }
-  &.cost-low { background-color: #fff3cd; color: #856404; }
-  &.cost-medium { background-color: #ffe8cc; color: #cc6600; }
-  &.cost-high { background-color: #f8d7da; color: #721c24; }
-  &.cost-uncalculated { background-color: #e0e0e0; color: #616161; }
-  .cost-icon { font-size: 9px; opacity: 0.85; }
-}
-.agent-provider {
-  font-size: 9px;
-  color: white;
-  font-family: ui-monospace, monospace;
-  background-color: #6c757d;
-  padding: 2px 6px;
-  border-radius: 3px;
-  display: inline-block;
-  text-transform: uppercase;
-  font-weight: 700;
-  &.provider-ollama { background-color: #8B5CF6; }
-  &.provider-openrouter { background-color: #16a34a; }
-  &.provider-bedrock { background-color: #FF9900; color: #232F3E; }
-  &.provider-vertex { background-color: #4285F4; }
-  &.provider-openai { background-color: #10a37f; }
+  .hash {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
+  }
 }
 
-// Chat area --------------------------------------------------------------
-.chat-area {
-  flex: 1;
+// — Banner ————————————————————————————————————————————————
+.banner-error {
   display: flex;
-  flex-direction: column;
-  background-color: var(--projects-section);
-  border-radius: 10px;
-  border: 1px solid var(--message-box-border);
-  overflow: hidden;
-  min-width: 0;
-}
-.chat-header {
-  display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--message-box-border);
-  background-color: var(--hover-menu-bg);
-  .selected-agent-info {
-    flex: 1;
-    h2 { margin: 0 0 2px 0; font-size: 15px; color: var(--main-color); }
-    p { margin: 0; font-size: 12px; color: var(--inactive-color); }
-  }
-  .header-actions { display: flex; gap: 6px; }
-}
-.sessions-panel {
-  border-bottom: 1px solid var(--message-box-border);
-  background-color: var(--hover-menu-bg);
-  max-height: 200px;
-  overflow-y: auto;
-}
-.sessions-header {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--message-box-border);
-  h3 { margin: 0; font-size: 12px; color: var(--secondary-color); }
-}
-.sessions-empty {
-  padding: 16px;
-  font-size: 13px;
-  color: var(--inactive-color);
-  text-align: center;
-}
-.sessions-list { padding: 4px; }
-.session-item {
-  padding: 8px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  &:hover { background-color: var(--hover-menu-bg); }
-  &.active {
-    background-color: rgba(40, 167, 69, 0.1);
-    border-left: 3px solid #28a745;
-  }
-}
-.session-header-row { display: flex; justify-content: space-between; }
-.session-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--main-color);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  max-width: 70%;
-}
-.session-date {
-  font-size: 11px;
-  color: var(--inactive-color);
-}
-.session-meta {
-  font-size: 11px;
-  color: var(--inactive-color);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  .material-symbols-outlined { font-size: 14px; }
-}
-.messages-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.load-more-container { text-align: center; padding-bottom: 8px; }
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--inactive-color);
-  .material-symbols-outlined { font-size: 64px; opacity: 0.4; margin-bottom: 12px; }
-}
-.message {
-  display: flex;
-  flex-direction: column;
-  max-width: 92%;
-  &.user {
-    align-self: flex-end;
-    .message-content {
-      background-color: var(--link-color);
-      color: white;
-      border-radius: 16px 16px 4px 16px;
-      padding: 10px 14px;
-      .user-content { white-space: pre-wrap; }
-    }
-    .message-meta { align-self: flex-end; }
-  }
-  &.assistant {
-    align-self: flex-start;
-    .message-content {
-      background-color: var(--hover-menu-bg);
-      color: var(--main-color);
-      border-radius: 16px 16px 16px 4px;
-      padding: 10px 14px;
-      line-height: 1.55;
-      :deep(pre.hljs) {
-        border-radius: 6px;
-        padding: 10px 14px;
-        margin: 8px 0;
-        font-size: 12.5px;
-        overflow-x: auto;
-      }
-      :deep(code:not(pre code)) {
-        background: rgba(0, 0, 0, 0.08);
-        padding: 1px 4px;
-        border-radius: 4px;
-        font-size: 12.5px;
-      }
-    }
-  }
-}
-.message-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 4px;
-  font-size: 11px;
-  color: var(--inactive-color);
-  .message-role { font-weight: 600; }
-  .message-time { opacity: 0.7; }
-}
-.input-area {
-  display: flex;
-  gap: 10px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--message-box-border);
-  background-color: var(--hover-menu-bg);
-}
-.message-input {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid var(--message-box-border);
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: none;
-  background-color: var(--search-area-bg);
-  color: var(--main-color);
-  &:focus {
-    outline: none;
-    border-color: var(--link-color);
-  }
-  &:disabled { opacity: 0.7; }
-}
-.input-actions {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.button {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  background-color: var(--link-color);
-  color: white;
-  cursor: pointer;
+  padding: 10px 56px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-bottom: 1px solid var(--accent);
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
+  letter-spacing: 0.03em;
+  button {
+    background: transparent;
+    border: 0;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    cursor: pointer;
+    font-size: 10.5px;
+    &:hover { text-decoration: underline; }
+  }
+}
+
+// — Scroller / column ————————————————————————————————————————
+.scroller {
+  overflow-y: auto;
+  padding: 28px 56px 60px;
+}
+.column {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+.load-more {
+  align-self: center;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 8px 12px;
+  &:hover { color: var(--ink); }
+}
+
+// — Empty state ——————————————————————————————————————————————
+.empty-state {
+  margin-top: 12vh;
+  text-align: center;
+  .lead {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--ink-muted);
+    font-style: italic;
+    letter-spacing: -0.005em;
+  }
+  .drop-cap {
+    font-family: var(--font-display);
+    font-size: 56px;
+    line-height: 0.9;
+    font-style: italic;
+    color: var(--accent);
+    float: left;
+    margin: 4px 6px 0 0;
+    font-weight: 400;
+  }
+  .hint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+}
+
+// — Turn ————————————————————————————————————————————————————
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+.turn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+    margin-left: 8px;
+  }
+  .speaker { color: var(--ink); font-weight: 500; }
+  .time { color: var(--ink-faint); }
+  .dot { color: var(--ink-faint); }
+}
+.turn.user .turn-head .speaker { color: var(--accent); }
+
+// — Prose blocks (no bubbles) ————————————————————————————————————
+.prose {
+  font-family: var(--font-body);
+  font-size: 16.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  white-space: normal;
+
+  &.user-prose {
+    white-space: pre-wrap;
+    color: var(--ink);
+    font-style: normal;
+  }
+  &.pending {
+    color: var(--ink-faint);
+    font-style: italic;
+    .thinking-text { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+  }
+
+  :deep(p) { margin: 0 0 0.9em; }
+  :deep(p:last-child) { margin-bottom: 0; }
+  :deep(strong) { font-weight: 600; }
+  :deep(em) { font-style: italic; }
+  :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  :deep(ul), :deep(ol) { padding-left: 1.4em; margin: 0.4em 0; }
+  :deep(li) { margin: 0.2em 0; }
+  :deep(blockquote) {
+    border-left: 2px solid var(--accent);
+    margin: 0.8em 0;
+    padding: 0.1em 0 0.1em 1em;
+    color: var(--ink-muted);
+    font-style: italic;
+  }
+  :deep(h1), :deep(h2), :deep(h3) {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    margin: 0.8em 0 0.3em;
+  }
+  :deep(h1) { font-size: 1.5em; }
+  :deep(h2) { font-size: 1.25em; }
+  :deep(h3) { font-size: 1.1em; }
+  :deep(pre.hljs) {
+    margin: 1em 0;
+    padding: 14px 16px;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-deep) !important;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    overflow-x: auto;
+    border-radius: 0;
+  }
+  :deep(code:not(pre code)) {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    padding: 1px 5px;
+    background: var(--bg-deep);
+    border: 1px solid var(--rule);
+    border-radius: 0;
+  }
+  :deep(hr) {
+    border: 0;
+    height: 1px;
+    background: var(--rule);
+    margin: 1.4em 0;
+  }
+  :deep(table) {
+    border-collapse: collapse;
+    margin: 0.8em 0;
+    font-family: var(--font-body);
+    font-size: 0.95em;
+  }
+  :deep(th), :deep(td) {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  :deep(th) { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); }
+}
+
+// — Reasoning block (set off in left margin) ——
+.reasoning {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  border-left: 1px solid var(--accent);
+}
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .rule { flex: 1; height: 1px; background: var(--rule); }
+}
+.reasoning-body {
+  font-family: var(--font-body);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  white-space: pre-wrap;
+}
+
+// — Tools (inline markers, not chips) ——
+.tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.tool {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  &:disabled {
-    background-color: var(--inactive-color);
-    cursor: not-allowed;
-    opacity: 0.6;
+  gap: 8px;
+  letter-spacing: 0.04em;
+  .arrow { color: var(--accent); }
+  .t-name { color: var(--ink); }
+  .t-status {
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--ink-faint);
   }
-  .material-symbols-outlined { font-size: 14px; }
+  &.status-success .t-status { color: #2f8f2f; }
+  &.status-error .t-status { color: var(--accent); font-style: italic; }
 }
-.button-send { background-color: #28a745; }
-.button-cancel { background-color: #dc3545; }
-.button-sessions { background-color: #fd7e14; }
-.button-new-chat { background-color: #28a745; }
-.button-clear { background-color: #dc3545; }
-.button-load-more { background-color: #17a2b8; }
+
+// — Caret ——————————————————————————————————————————————————
+.caret {
+  display: inline-block;
+  width: 9px;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  margin-left: 1px;
+  animation: blink 1.05s steps(2, end) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.trailing-caret { padding-left: 0; }
+
+// — Composer ————————————————————————————————————————————————
+.composer {
+  border-top: 1px solid var(--rule);
+  background: var(--bg);
+  padding: 16px 56px 24px;
+}
+.composer-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: end;
+  gap: 14px;
+}
+.composer-rail {
+  padding-top: 6px;
+  .prompt-glyph {
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-size: 14px;
+  }
+}
+.composer-input {
+  font: inherit;
+  font-family: var(--font-body);
+  font-size: 16.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  padding: 4px 0;
+  min-height: 28px;
+  max-height: 240px;
+  &::placeholder {
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+  &:disabled { cursor: not-allowed; opacity: 0.7; }
+}
+.composer-actions { padding-bottom: 4px; }
+.action {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.16s;
+  border-radius: 0;
+  &:hover:not(:disabled) {
+    background: var(--ink);
+    color: var(--bg);
+    border-color: var(--ink);
+    .kbd { color: var(--bg); border-color: var(--bg); }
+  }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .kbd {
+    font-size: 11px;
+    color: var(--ink-faint);
+    border: 1px solid var(--rule);
+    padding: 0 4px;
+    transition: all 0.16s;
+  }
+  .material-symbols-outlined { font-size: 16px; }
+
+  &.cancel {
+    color: var(--accent);
+    border-color: var(--accent);
+    &:hover {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+  }
+}
 </style>
