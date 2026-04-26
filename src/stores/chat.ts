@@ -37,5 +37,13 @@ export const useChatStore = defineStore('chat', {
         this.bumpSessions()
       }
     },
+    /** Background title generator finished — refresh the sidebar and
+     *  update pendingTitle if this is still the active session. */
+    applySessionTitle(sessionId: string, title: string) {
+      if (this.currentSessionId === sessionId) {
+        this.pendingTitle = title
+      }
+      this.bumpSessions()
+    },
   },
 })

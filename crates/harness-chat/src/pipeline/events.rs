@@ -63,6 +63,12 @@ pub enum StreamEvent {
         intent: String,
         source: String, // "auto" | "manual"
     },
+    /// A background task generated a summary title for the session.
+    /// Emitted asynchronously; may arrive after `Done`.
+    SessionTitled {
+        session_id: String,
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]

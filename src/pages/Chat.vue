@@ -230,6 +230,9 @@ export default defineComponent({
         case 'error':
           this.error = e.message
           break
+        case 'session_titled':
+          this.chat.applySessionTitle(e.session_id, e.title)
+          break
         case 'done':
         case 'cancelled':
         case 'context_started':
@@ -383,9 +386,6 @@ export default defineComponent({
             </button>
           </div>
         </div>
-      </div>
-      <div v-if="chat.currentSessionId" class="session-tag">
-        session · {{ chat.currentSessionId.slice(0, 8) }}
       </div>
     </footer>
   </div>
@@ -676,13 +676,47 @@ export default defineComponent({
   min-width: 0;
   flex: 1;
 }
-.session-tag {
-  display: block;
-  max-width: 760px;
-  margin: 6px auto 0;
-  font-size: 11px;
-  color: var(--ink-faint);
-  text-align: right;
+// — Session alcove ————————————————————————————————
+.session-alcove {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 10px 24px 4px;
+  background: var(--bg);
+}
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, 80%);
+  padding: 5px 14px;
+  background: var(--bg-deep);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  color: var(--ink-muted);
+
+  .dot {
+    font-size: 14px;
+    color: var(--ink-faint);
+    flex-shrink: 0;
+  }
+  .title {
+    color: var(--ink);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .sep { color: var(--ink-faint); flex-shrink: 0; }
+  .sid {
+    font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    flex-shrink: 0;
+  }
 }
 .composer-input {
   border: 0;

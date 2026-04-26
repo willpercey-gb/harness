@@ -95,3 +95,4 @@ export type StreamEvent =
   | { kind: 'context_aside'; id: string; text: string; edited_by_user: boolean }
   | { kind: 'context_done' }
   | { kind: 'intent_classified'; intent: string; source: 'auto' | 'manual' }
+  | { kind: 'session_titled'; session_id: string; title: string }

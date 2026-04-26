@@ -116,6 +116,10 @@ pub async fn run_chat(
     cancel: CancellationToken,
     emit: impl Fn(StreamEvent) + Send + Sync + 'static,
 ) -> ChatRunOutcome {
+    // Wrap the emit closure once so we can share it with background
+    // tasks (e.g. async title generation) without taking the closure
+    // by value.
+    let emit: Arc<dyn Fn(StreamEvent) + Send + Sync> = Arc::new(emit);
     let emit_err_done = |emit: &dyn Fn(StreamEvent), msg: String| {
         emit(StreamEvent::Error { message: msg });
         emit(StreamEvent::Done {
@@ -123,6 +127,8 @@ pub async fn run_chat(
             usage: Usage::default(),
         });
     };
+
+    let is_fresh_session = session_id.is_none();
 
     // Resolve / create session.
     let session_id = match session_id {
@@ -136,7 +142,7 @@ pub async fn run_chat(
                 id
             }
             Err(e) => {
-                emit_err_done(&emit, format!("create session: {e}"));
+                emit_err_done(&*emit, format!("create session: {e}"));
                 return ChatRunOutcome {
                     session_id: String::new(),
                 };
@@ -147,8 +153,24 @@ pub async fn run_chat(
     if let Err(e) =
         messages::append(&db, &session_id, "user", &prompt, vec![], Some(&agent.id)).await
     {
-        emit_err_done(&emit, format!("save user message: {e}"));
+        emit_err_done(&*emit, format!("save user message: {e}"));
         return ChatRunOutcome { session_id };
+    }
+
+    // Fire-and-forget: generate a tidy title for the session via a
+    // small local Ollama model. Skipped on continuing sessions; if
+    // Ollama isn't running or tinyllama isn't pulled, the task warns
+    // and returns without affecting the main pipeline.
+    if is_fresh_session {
+        let emit_t = emit.clone();
+        let db_t = db.clone();
+        let settings_t = settings.clone();
+        let session_id_t = session_id.clone();
+        let prompt_t = prompt.clone();
+        let cancel_t = cancel.clone();
+        tokio::spawn(async move {
+            generate_title(db_t, settings_t, session_id_t, prompt_t, cancel_t, emit_t).await;
+        });
     }
 
     // Conversation history (sliding window, oldest-first) + new prompt.
@@ -159,7 +181,7 @@ pub async fn run_chat(
         match harness_storage::memory::sliding_window(&db, &session_id, HISTORY_LOAD).await {
             Ok(h) => h,
             Err(e) => {
-                emit_err_done(&emit, format!("load history: {e}"));
+                emit_err_done(&*emit, format!("load history: {e}"));
                 return ChatRunOutcome { session_id };
             }
         };
@@ -338,7 +360,7 @@ pub async fn run_chat(
             let key = match settings.openrouter_api_key.clone() {
                 Some(k) if !k.trim().is_empty() => k,
                 _ => {
-                    emit_err_done(&emit, "OpenRouter API key not configured".into());
+                    emit_err_done(&*emit, "OpenRouter API key not configured".into());
                     return ChatRunOutcome { session_id };
                 }
             };
@@ -405,7 +427,7 @@ pub async fn run_chat(
         }
         _ => {
             emit_err_done(
-                &emit,
+                &*emit,
                 format!("provider {:?} not yet supported", agent.provider),
             );
             return ChatRunOutcome { session_id };
@@ -415,7 +437,7 @@ pub async fn run_chat(
     let mut agent_inst = match builder_result {
         Ok(a) => a,
         Err(e) => {
-            emit_err_done(&emit, format!("build agent: {e}"));
+            emit_err_done(&*emit, format!("build agent: {e}"));
             return ChatRunOutcome { session_id };
         }
     };
@@ -601,4 +623,82 @@ fn make_title(prompt: &str) -> String {
     } else {
         trimmed
     }
+}
+
+/// Async, non-blocking title generator. Asks tinyllama (running on the
+/// configured Ollama host) to summarise the user's first message into
+/// a short session title, writes it back to chat_session.title, and
+/// emits a SessionTitled stream event so the sidebar can refresh.
+///
+/// All failures are warnings — the chat still works without it.
+async fn generate_title(
+    db: Arc<HarnessDb>,
+    settings: Settings,
+    session_id: String,
+    prompt: String,
+    cancel: CancellationToken,
+    emit: Arc<dyn Fn(StreamEvent) + Send + Sync>,
+) {
+    let model = OllamaModel::new("tinyllama").with_host(settings.ollama_host.clone());
+    let user_msg = Message::user(format!(
+        "Summarise the following user message as a 4–6 word session title. \
+         Output ONLY the title — no quotes, no punctuation, no labels, no prose.\n\n{prompt}"
+    ));
+    let mut stream = match model.stream(&[user_msg], None, &[]).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("title gen open: {e}");
+            return;
+        }
+    };
+
+    let mut title = String::new();
+    use futures::StreamExt;
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            evt = stream.next() => {
+                match evt {
+                    Some(Ok(CoreStream::ContentBlockDelta {
+                        delta: DeltaContent::TextDelta(t), ..
+                    })) => title.push_str(&t),
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => {
+                        tracing::warn!("title gen stream: {e}");
+                        return;
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
+    let cleaned = clean_title(&title);
+    if cleaned.is_empty() {
+        return;
+    }
+    if let Err(e) = sessions::rename(&db, &session_id, &cleaned).await {
+        tracing::warn!("title save: {e}");
+        return;
+    }
+    emit(StreamEvent::SessionTitled {
+        session_id,
+        title: cleaned,
+    });
+}
+
+fn clean_title(t: &str) -> String {
+    let stripped = t.trim();
+    // Strip surrounding quotes / backticks / asterisks, plus trailing
+    // punctuation. Cap at 60 chars.
+    let stripped = stripped
+        .trim_matches(|c: char| {
+            c == '"' || c == '\'' || c == '`' || c == '*' || c == '_' || c == '#'
+        })
+        .trim()
+        .trim_end_matches('.')
+        .trim_end_matches(',')
+        .trim();
+    stripped.chars().take(60).collect()
 }
