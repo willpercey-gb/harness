@@ -34,6 +34,10 @@ pub struct Settings {
     /// Settings UI in a future phase.
     #[serde(default)]
     pub claude_cli_path: Option<PathBuf>,
+    /// Override path for the Memex graph + vector store. When `None`,
+    /// defaults to `~/.harness/memex-db`.
+    #[serde(default)]
+    pub memex_db_path: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -47,6 +51,7 @@ impl Default for Settings {
             http_fetch_allowlist: Vec::new(),
             read_file_sandbox_root: None,
             claude_cli_path: None,
+            memex_db_path: None,
         }
     }
 }

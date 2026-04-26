@@ -8,6 +8,7 @@ export interface Settings {
   default_agent_id: string | null
   http_fetch_allowlist: string[]
   read_file_sandbox_root: string | null
+  memex_db_path: string | null
 }
 
 export async function getSettings(): Promise<Settings> {

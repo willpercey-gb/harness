@@ -19,7 +19,10 @@ use crate::agent_registry::{AgentConfig, Provider};
 use crate::context::{xml_envelope, Intent, IntentSource};
 use crate::context_agent::{self, ContextRequest};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
-use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
+use harness_tools::{
+    Calculator, EmbeddingService, GetTime, HttpFetch, LinkEntities, LookupEntity, MemexDb,
+    NoteEntity, ReadFile, Recall, Remember,
+};
 
 /// How many prior messages we load from harness-storage to seed the
 /// agent. Beyond ~`SUMMARIZE_TRIGGER`, the strands
@@ -106,6 +109,7 @@ impl CallbackHandler for CallbackBridge {
 /// Drive one chat turn against the agent's ReAct loop, persist user +
 /// assistant messages, and stream typed `StreamEvent`s into `emit` as
 /// they arrive.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_chat(
     db: Arc<HarnessDb>,
     settings: Settings,
@@ -113,6 +117,8 @@ pub async fn run_chat(
     prompt: String,
     session_id: Option<String>,
     intent_override: Option<Intent>,
+    memex_db: Arc<MemexDb>,
+    embedder: Option<Arc<EmbeddingService>>,
     cancel: CancellationToken,
     emit: impl Fn(StreamEvent) + Send + Sync + 'static,
 ) -> ChatRunOutcome {
@@ -319,12 +325,39 @@ pub async fn run_chat(
         b: strands_core::AgentBuilder,
         settings: &Settings,
         system: String,
+        memex_db: Arc<MemexDb>,
+        embedder: Option<Arc<EmbeddingService>>,
+        session_id: String,
     ) -> strands_core::AgentBuilder {
-        b.system_prompt(system)
+        let mut b = b
+            .system_prompt(system)
             .tool(GetTime)
             .tool(Calculator)
             .tool(HttpFetch::new(settings.http_fetch_allowlist.clone()))
             .tool(ReadFile::new(settings.read_file_sandbox_root.clone()))
+            .tool(LookupEntity {
+                db: memex_db.clone(),
+            })
+            .tool(LinkEntities {
+                db: memex_db.clone(),
+            });
+        if let Some(emb) = embedder {
+            b = b
+                .tool(Remember {
+                    db: memex_db.clone(),
+                    embedder: emb.clone(),
+                    session_id: Some(session_id),
+                })
+                .tool(Recall {
+                    db: memex_db.clone(),
+                    embedder: emb.clone(),
+                })
+                .tool(NoteEntity {
+                    db: memex_db,
+                    embedder: emb,
+                });
+        }
+        b
     }
 
     fn summarizer(model: Arc<dyn Model>) -> SummarizingConversationManager {
@@ -353,6 +386,9 @@ pub async fn run_chat(
                     .max_cycles(20),
                 &settings,
                 context_envelope.clone(),
+                memex_db.clone(),
+                embedder.clone(),
+                session_id.clone(),
             )
             .build()
         }
@@ -384,6 +420,9 @@ pub async fn run_chat(
                     .max_cycles(20),
                 &settings,
                 context_envelope.clone(),
+                memex_db.clone(),
+                embedder.clone(),
+                session_id.clone(),
             )
             .build()
         }
@@ -422,6 +461,9 @@ pub async fn run_chat(
                     .max_cycles(20),
                 &settings,
                 context_envelope.clone(),
+                memex_db.clone(),
+                embedder.clone(),
+                session_id.clone(),
             )
             .build()
         }

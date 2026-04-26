@@ -17,6 +17,7 @@ const settings = ref<Settings>({
   default_agent_id: null,
   http_fetch_allowlist: [],
   read_file_sandbox_root: null,
+  memex_db_path: null,
 })
 
 onMounted(async () => {
@@ -142,6 +143,25 @@ function back() {
             placeholder="/Users/you/Documents/notes"
           />
           <span class="hint">Files outside this directory are refused.</span>
+        </label>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">Knowledge store</h2>
+        <p class="group-desc">
+          The agent's <code>remember</code> / <code>recall</code> / <code>note_entity</code> tools
+          read and write a SurrealDB graph + vector store. Default location:
+          <code>~/.harness/memex-db</code>.
+        </p>
+
+        <label class="field">
+          <span class="label">Memex DB path</span>
+          <input
+            v-model="settings.memex_db_path"
+            type="text"
+            placeholder="/Users/you/.harness/memex-db"
+          />
+          <span class="hint">Override the default. Restart the app after changing.</span>
         </label>
       </section>
 

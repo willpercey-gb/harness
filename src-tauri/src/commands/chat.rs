@@ -35,6 +35,8 @@ pub async fn chat_send(
     let cancellations = state.cancellations.clone();
     let db = state.db.clone();
     let settings = state.settings.read().await.clone();
+    let memex_db = state.memex_db.clone();
+    let embedder = state.embedder.clone();
 
     let channel_for_emit = on_event;
     let outcome = run_chat(
@@ -44,6 +46,8 @@ pub async fn chat_send(
         prompt,
         session_id,
         intent,
+        memex_db,
+        embedder,
         token,
         move |event| {
             let _ = channel_for_emit.send(event);

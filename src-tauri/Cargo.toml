@@ -26,5 +26,7 @@ tracing-subscriber.workspace = true
 chrono.workspace = true
 harness-storage.workspace = true
 harness-chat.workspace = true
+harness-tools.workspace = true
 strands-core.workspace = true
 strands-ollama.workspace = true
+dirs.workspace = true

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use harness_chat::{
@@ -5,12 +6,27 @@ use harness_chat::{
     CancellationRegistry,
 };
 use harness_storage::{init_db, settings, HarnessDb, Settings};
+use harness_tools::{init_memex_db, EmbeddingService, MemexDb};
 use tokio::sync::RwLock;
 
 pub struct AppState {
     pub db: Arc<HarnessDb>,
     pub cancellations: CancellationRegistry,
     pub settings: Arc<RwLock<Settings>>,
+    /// Per-harness Memex graph + vector store (separate file from the
+    /// chat history db) — backs the remember/recall/note_entity/etc tools.
+    pub memex_db: Arc<MemexDb>,
+    /// In-process embedder used by the memex tools. None on first-run
+    /// model-load failure; tools log a friendly "knowledge store
+    /// unavailable" error in that case.
+    pub embedder: Option<Arc<EmbeddingService>>,
+}
+
+fn default_memex_path() -> PathBuf {
+    dirs::home_dir()
+        .expect("home directory")
+        .join(".harness")
+        .join("memex-db")
 }
 
 impl AppState {
@@ -35,10 +51,34 @@ impl AppState {
             }
         }
 
+        // Initialise the Memex DB at the configured path (default
+        // ~/.harness/memex-db) and warm up the embedder. Failure to
+        // build the embedder is non-fatal — we record it as `None`
+        // and the tools that depend on it surface a clean error.
+        let memex_path = loaded_settings
+            .memex_db_path
+            .clone()
+            .unwrap_or_else(default_memex_path);
+        let memex_db = init_memex_db(&memex_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("init memex db: {e}"))?;
+        let embedder = match EmbeddingService::new() {
+            Ok(e) => {
+                tracing::info!("memex embedder ready");
+                Some(Arc::new(e))
+            }
+            Err(e) => {
+                tracing::warn!("memex embedder failed to load: {e} (memory tools will refuse calls)");
+                None
+            }
+        };
+
         Ok(Self {
             db: Arc::new(db),
             cancellations: CancellationRegistry::new(),
             settings: Arc::new(RwLock::new(loaded_settings)),
+            memex_db: Arc::new(memex_db),
+            embedder,
         })
     }
 
