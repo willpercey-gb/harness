@@ -270,6 +270,15 @@ export default defineComponent({
 
 <template>
   <div class="page">
+    <header v-if="chat.currentSessionId" class="session-alcove">
+      <div class="session-pill">
+        <span class="material-symbols-outlined dot">forum</span>
+        <span v-if="title" class="title">{{ title }}</span>
+        <span class="sep" v-if="title">·</span>
+        <span class="sid">{{ chat.currentSessionId.slice(0, 8) }}</span>
+      </div>
+    </header>
+
     <div v-if="error" class="banner-error">
       <span>{{ error }}</span>
       <button @click="error = ''" aria-label="Dismiss">

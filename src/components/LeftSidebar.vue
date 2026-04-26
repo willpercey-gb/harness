@@ -79,21 +79,25 @@ function relativeDate(s: string): string {
       <div v-if="loading" class="empty">Loading…</div>
       <div v-else-if="sessions.length === 0" class="empty">No conversations yet.</div>
 
-      <button
+      <div
         v-for="s in sessions"
         :key="s.sessionId"
         class="session"
         :class="{ active: chat.currentSessionId === s.sessionId }"
-        @click="open(s)"
       >
-        <span class="title">{{ s.title || 'Untitled' }}</span>
-        <span class="meta">{{ relativeDate(s.lastMessageAt) }}</span>
-        <span
-          class="delete material-symbols-outlined"
-          title="Delete"
-          @click.stop.prevent="remove(s)"
-        >close</span>
-      </button>
+        <button class="session-open" type="button" @click="open(s)">
+          <span class="title">{{ s.title || 'Untitled' }}</span>
+          <span class="meta">{{ relativeDate(s.lastMessageAt) }}</span>
+        </button>
+        <button
+          type="button"
+          class="delete"
+          title="Delete conversation"
+          @click="remove(s)"
+        >
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
     </nav>
 
     <footer class="bottom">
@@ -149,18 +153,27 @@ function relativeDate(s: string): string {
 }
 .session {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: transparent;
-  border: 0;
   border-radius: var(--radius-md);
-  cursor: pointer;
-  text-align: left;
   position: relative;
   transition: background 0.12s;
 
+  .session-open {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    min-width: 0;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+    transition: background 0.12s;
+  }
   .title {
     font-size: 13.5px;
     color: var(--ink);
@@ -173,21 +186,30 @@ function relativeDate(s: string): string {
     color: var(--ink-faint);
   }
   .delete {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
     color: var(--ink-faint);
     opacity: 0;
-    font-size: 16px;
+    padding: 4px 10px;
+    margin-right: 4px;
     border-radius: var(--radius-sm);
-    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+    .material-symbols-outlined { font-size: 16px; }
     &:hover { color: var(--ink); background: var(--rule-strong); }
   }
 
   &:hover {
     background: var(--bg-hover);
+    .session-open { background: var(--bg-hover); }
     .delete { opacity: 1; }
     .meta { opacity: 0; }
   }
   &.active {
     background: var(--bg-hover);
+    .session-open { background: var(--bg-hover); }
     .title { font-weight: 500; }
   }
 }
