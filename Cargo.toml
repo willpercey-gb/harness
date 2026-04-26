@@ -35,6 +35,7 @@ surrealdb = { version = "2", features = ["kv-rocksdb", "kv-mem"] }
 strands-core = { path = "../strands-rs/strands-core" }
 strands-ollama = { path = "../strands-rs/strands-ollama" }
 strands-openrouter = { path = "../strands-rs/strands-openrouter" }
+strands-claude-cli = { path = "../strands-rs/strands-claude-cli" }
 
 # internal crates
 harness-storage = { path = "crates/harness-storage" }

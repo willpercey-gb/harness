@@ -7,6 +7,7 @@ use strands_core::types::content::ContentBlock;
 use strands_core::types::streaming::{DeltaContent, StreamEvent as CoreStream};
 use strands_core::Message;
 use strands_core::{Agent, CallbackHandler};
+use strands_claude_cli::ClaudeCliModel;
 use strands_ollama::OllamaModel;
 use strands_openrouter::OpenRouterModel;
 use tokio::sync::mpsc;
@@ -151,6 +152,22 @@ pub async fn run_chat(
             if let Some(t) = settings.openrouter_app_title.clone() {
                 model = model.with_app_title(t);
             }
+            with_tools(
+                Agent::builder()
+                    .model(model)
+                    .callback_handler(CallbackBridge { tx })
+                    .max_cycles(20),
+                &settings,
+            )
+            .build()
+        }
+        Provider::ClaudeCli => {
+            // The CLI subprocess inherits cwd from harness's Tauri
+            // process; for now we pin it to the user's home so the CLI
+            // doesn't try to discover CLAUDE.md / plugins from
+            // wherever harness happens to be run from.
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let model = ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd);
             with_tools(
                 Agent::builder()
                     .model(model)

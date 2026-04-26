@@ -6,8 +6,8 @@ pub mod pipeline;
 pub mod service;
 
 pub use agent_registry::{
-    discover_ollama, openrouter_agents, AgentConfig, AgentDto, AgentType, Architecture, CostTier,
-    Provider,
+    claude_cli_agents, discover_ollama, openrouter_agents, AgentConfig, AgentDto, AgentType,
+    Architecture, CostTier, Provider,
 };
 #[allow(deprecated)]
 pub use agent_registry::placeholder_agents;

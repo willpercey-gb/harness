@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use harness_chat::{discover_ollama, openrouter_agents, AgentConfig, CancellationRegistry};
+use harness_chat::{
+    claude_cli_agents, discover_ollama, openrouter_agents, AgentConfig, CancellationRegistry,
+};
 use harness_storage::{init_db, settings, HarnessDb, Settings};
 use tokio::sync::RwLock;
 
@@ -30,11 +32,14 @@ impl AppState {
     }
 
     /// Live agent list: dynamic Ollama discovery + curated OpenRouter
-    /// list. The OpenRouter entries are gated on `Settings.openrouter_enabled()`.
+    /// list (gated on `Settings.openrouter_enabled()`) + curated
+    /// Claude-CLI list (always shown — actual availability is checked
+    /// at chat_send time when the subprocess is spawned).
     pub async fn current_agents(&self) -> Vec<AgentConfig> {
         let settings = self.settings.read().await.clone();
         let mut agents = discover_ollama(&settings.ollama_host).await;
         agents.extend(openrouter_agents(settings.openrouter_enabled()));
+        agents.extend(claude_cli_agents());
         agents
     }
 

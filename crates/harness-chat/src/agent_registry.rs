@@ -15,6 +15,9 @@ pub enum AgentType {
 pub enum Provider {
     Ollama,
     OpenRouter,
+    /// Local Claude Code CLI (`claude -p`) — uses the user's logged-in
+    /// session, no API key managed by harness.
+    ClaudeCli,
     Bedrock,
     Vertex,
     OpenAi,
@@ -121,10 +124,54 @@ fn provider_label(p: Provider) -> &'static str {
     match p {
         Provider::Ollama => "Ollama",
         Provider::OpenRouter => "OpenRouter",
+        Provider::ClaudeCli => "ClaudeCLI",
         Provider::Bedrock => "Bedrock",
         Provider::Vertex => "Vertex",
         Provider::OpenAi => "OpenAI",
     }
+}
+
+/// Curated agents backed by the local `claude -p` CLI. Always enabled
+/// when the binary is available — discovery is a cheap probe that
+/// caches across calls.
+pub fn claude_cli_agents() -> Vec<AgentConfig> {
+    let entries: &[(&str, &str, &str, CostTier)] = &[
+        (
+            "haiku",
+            "Claude Haiku 4.5 (CLI)",
+            "Fast, cheap Claude via local CLI. Uses your logged-in session.",
+            CostTier::Low,
+        ),
+        (
+            "sonnet",
+            "Claude Sonnet 4.6 (CLI)",
+            "Balanced Claude via local CLI. Uses your logged-in session.",
+            CostTier::Medium,
+        ),
+        (
+            "opus",
+            "Claude Opus 4.7 (CLI)",
+            "Most capable Claude via local CLI. Slow, premium-priced. Uses your logged-in session.",
+            CostTier::High,
+        ),
+    ];
+    entries
+        .iter()
+        .map(|(alias, name, desc, cost)| AgentConfig {
+            id: format!("claude-cli:{alias}"),
+            agent_type: AgentType::Agent,
+            name: (*name).to_string(),
+            description: (*desc).to_string(),
+            provider: Provider::ClaudeCli,
+            model_id: (*alias).to_string(),
+            parameters: None,
+            architecture: None,
+            cost: *cost,
+            supports_tools: true,
+            disabled: false,
+            disabled_message: None,
+        })
+        .collect()
 }
 
 /// Curated list of OpenRouter models surfaced in the agent picker.
