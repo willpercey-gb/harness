@@ -88,3 +88,10 @@ export type StreamEvent =
   | { kind: 'error'; message: string }
   | { kind: 'done'; stop_reason: StopReason; usage: Usage }
   | { kind: 'cancelled' }
+  // Multi-agent context pipeline events:
+  | { kind: 'context_started' }
+  | { kind: 'context_anchor'; text: string }
+  | { kind: 'context_priority'; id: string; text: string; edited_by_user: boolean }
+  | { kind: 'context_aside'; id: string; text: string; edited_by_user: boolean }
+  | { kind: 'context_done' }
+  | { kind: 'intent_classified'; intent: string; source: 'auto' | 'manual' }

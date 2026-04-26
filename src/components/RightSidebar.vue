@@ -1,24 +1,65 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useContextStore } from '@/stores/context'
+import { useChatStore } from '@/stores/chat'
+import AnchorCard from '@/components/context/AnchorCard.vue'
+import CardList from '@/components/context/CardList.vue'
+import IntentBadge from '@/components/context/IntentBadge.vue'
+
 defineProps<{ open: boolean }>()
 defineEmits<{ (e: 'toggle'): void }>()
+
+const ctx = useContextStore()
+const chat = useChatStore()
+const hasSession = computed(() => !!chat.currentSessionId)
 </script>
 
 <template>
   <aside class="right" :class="{ open }">
-    <button class="toggle" :title="open ? 'Collapse panel' : 'Expand panel'" @click="$emit('toggle')">
+    <button class="toggle" :title="open ? 'Close panel' : 'Open panel'" @click="$emit('toggle')">
       <span class="material-symbols-outlined">
-        {{ open ? 'chevron_right' : 'chevron_left' }}
+        {{ open ? 'right_panel_close' : 'right_panel_open' }}
       </span>
     </button>
+
     <div class="content" v-show="open">
-      <span class="eyebrow vertical">Notes</span>
-      <p class="placeholder">
-        This panel is reserved.<br />
-        Tooling, references, scratchpad — coming soon.
+      <header class="meta">
+        <span class="title">Context</span>
+        <IntentBadge
+          :intent="(ctx.lastIntent?.intent ?? null) as any"
+          :source="ctx.lastIntent?.source ?? null"
+        />
+      </header>
+
+      <p v-if="!hasSession" class="placeholder">
+        Start a conversation to see anchor / priorities / asides.
       </p>
-    </div>
-    <div class="rail" v-show="!open">
-      <span class="rail-text">— soon —</span>
+
+      <template v-else>
+        <AnchorCard
+          :text="ctx.context.anchor"
+          :refreshing="ctx.refreshing"
+          @update="ctx.setAnchor"
+        />
+
+        <CardList
+          label="Priorities"
+          :cards="ctx.context.priorities"
+          @add="ctx.addPriority"
+          @edit="ctx.editPriority"
+          @delete="ctx.deletePriority"
+        />
+
+        <CardList
+          label="Asides"
+          :cards="ctx.context.asides"
+          @add="ctx.addAside"
+          @edit="ctx.editAside"
+          @delete="ctx.deleteAside"
+        />
+
+        <p v-if="ctx.saveError" class="error">{{ ctx.saveError }}</p>
+      </template>
     </div>
   </aside>
 </template>
@@ -33,70 +74,59 @@ defineEmits<{ (e: 'toggle'): void }>()
   flex-direction: column;
 }
 .toggle {
-  position: absolute;
-  top: 18px;
-  left: 8px;
-  width: 28px;
-  height: 28px;
-  background: transparent;
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-soft);
   border: 1px solid var(--rule);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-faint);
-  transition: all 0.18s;
-  z-index: 2;
+  color: var(--ink-muted);
+  border-radius: var(--radius-md, 4px);
+  z-index: 30;
+  transition: all 0.15s;
   &:hover {
     color: var(--ink);
-    border-color: var(--rule-strong);
-    background: var(--bg);
+    background: var(--bg-hover, var(--bg-soft));
   }
+  .material-symbols-outlined { font-size: 18px; }
 }
 .content {
-  padding: 80px 24px 24px;
+  padding: 56px 18px 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  overflow-y: auto;
   height: 100%;
-
-  .eyebrow.vertical {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-    opacity: 0.6;
-    margin-bottom: 8px;
-  }
-  .placeholder {
-    font-family: var(--font-body);
-    font-size: 15px;
-    line-height: 1.7;
-    color: var(--ink-faint);
-    font-style: italic;
-    margin: 0;
-    opacity: 0.8;
-  }
+  box-sizing: border-box;
 }
-.rail {
-  flex: 1;
+.meta {
   display: flex;
   align-items: center;
-  justify-content: center;
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  .rail-text {
-    transform: rotate(-90deg);
-    transform-origin: center;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.4em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-    white-space: nowrap;
-    opacity: 0.4;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+  .title {
+    font-family: var(--font-display, inherit);
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--ink);
   }
+}
+.placeholder {
+  font-size: 13px;
+  color: var(--ink-faint);
+  margin: 0;
+}
+.error {
+  font-size: 12px;
+  color: #ef4444;
+  margin: 0;
 }
 </style>

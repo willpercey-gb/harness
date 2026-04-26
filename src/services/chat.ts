@@ -5,6 +5,7 @@ import type {
   ChatSession,
   StreamEvent,
 } from '@/types/chat.types'
+import { parseAssistantContent } from '@/services/parseStored'
 
 export async function getAgents(): Promise<Agent[]> {
   return await invoke<Agent[]>('list_agents')
@@ -55,13 +56,27 @@ export async function getChatHistory(
   })
   // backend returns newest-first; reverse for display order
   const messages: ChatMessage[] = page.data
-    .map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      timestamp: new Date(m.createdAt),
-      agentId: m.agentId ?? undefined,
-    }))
+    .map((m) => {
+      if (m.role === 'assistant') {
+        const parsed = parseAssistantContent(m.content)
+        return {
+          id: m.id,
+          role: m.role,
+          content: parsed.content,
+          reasoning: parsed.reasoning || undefined,
+          toolEvents: parsed.toolEvents.length ? parsed.toolEvents : undefined,
+          timestamp: new Date(m.createdAt),
+          agentId: m.agentId ?? undefined,
+        }
+      }
+      return {
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.createdAt),
+        agentId: m.agentId ?? undefined,
+      }
+    })
     .reverse()
   return {
     messages,
@@ -91,6 +106,7 @@ export function streamChat(
   prompt: string,
   sessionId: string | null,
   onEvent: (e: StreamEvent) => void,
+  intentOverride: string | null = null,
 ): StreamHandle {
   const channel = new Channel<StreamEvent>()
   channel.onmessage = (e) => onEvent(e)
@@ -99,6 +115,7 @@ export function streamChat(
     agent: agentId,
     prompt,
     sessionId,
+    intentOverride,
     onEvent: channel,
   }).then((sessionId) => ({ sessionId }))
   const cancel = async () => {

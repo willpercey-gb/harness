@@ -6,7 +6,9 @@ import {
   type StreamHandle,
 } from '@/services/chat'
 import { useChatStore } from '@/stores/chat'
+import { useContextStore } from '@/stores/context'
 import type { ChatMessage, StreamEvent, ToolEvent } from '@/types/chat.types'
+import type { Intent } from '@/types/context.types'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -22,6 +24,7 @@ import markdown from 'highlight.js/lib/languages/markdown'
 import 'highlight.js/styles/atom-one-dark.css'
 
 import AgentSelector from '@/components/AgentSelector.vue'
+import IntentDropdown from '@/components/composer/IntentDropdown.vue'
 
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('typescript', typescript)
@@ -53,9 +56,9 @@ const md = new MarkdownIt({
 
 export default defineComponent({
   name: 'ChatPage',
-  components: { AgentSelector },
+  components: { AgentSelector, IntentDropdown },
   setup() {
-    return { chat: useChatStore() }
+    return { chat: useChatStore(), context: useContextStore() }
   },
   data() {
     return {
@@ -72,24 +75,24 @@ export default defineComponent({
       loadingHistory: false,
       currentStream: null as StreamHandle | null,
       title: '' as string,
+      intentOverride: 'auto' as Intent | 'auto',
     }
   },
   computed: {
-    agentName(): string {
-      return this.chat.selectedAgent?.attributes.name ?? '—'
-    },
-    agentLabel(): string {
-      return (this.chat.selectedAgent?.attributes.name ?? 'agent').replace(/[^a-z0-9]/gi, '').slice(0, 12).toUpperCase() || 'AGENT'
+    hasContent(): boolean {
+      return this.messages.length > 0
     },
   },
   watch: {
     'chat.historyBumper'() {
       this.title = this.chat.pendingTitle ?? ''
       this.loadHistory()
+      this.context.loadForSession(this.chat.currentSessionId)
     },
   },
   mounted() {
     if (this.chat.currentSessionId) this.loadHistory()
+    this.context.loadForSession(this.chat.currentSessionId)
   },
   methods: {
     async loadHistory() {
@@ -160,7 +163,6 @@ export default defineComponent({
         agentId: this.chat.selectedAgent.id,
       })
 
-      // Title-from-first-prompt for in-flight conversations.
       if (!this.title) this.title = prompt.slice(0, 60)
 
       this.streaming = true
@@ -168,11 +170,15 @@ export default defineComponent({
       this.thinking = false
       this.autoScroll = true
 
+      const overrideForRequest =
+        this.intentOverride === 'auto' ? null : this.intentOverride
+
       const handle = streamChat(
         this.chat.selectedAgent.id,
         prompt,
         this.chat.currentSessionId,
         (e: StreamEvent) => this.onStreamEvent(idx, e),
+        overrideForRequest,
       )
       this.currentStream = handle
 
@@ -185,9 +191,15 @@ export default defineComponent({
         this.streaming = false
         this.thinking = false
         this.currentStream = null
+        // Reset intent override to Auto after each turn (per plan).
+        this.intentOverride = 'auto'
       }
     },
     onStreamEvent(idx: number, e: StreamEvent) {
+      // Mirror context-pipeline events into the context store first;
+      // this is independent of the chat message state.
+      this.context.applyStreamEvent(e)
+
       const msg = this.messages[idx]
       if (!msg) return
       switch (e.kind) {
@@ -220,6 +232,12 @@ export default defineComponent({
           break
         case 'done':
         case 'cancelled':
+        case 'context_started':
+        case 'context_anchor':
+        case 'context_priority':
+        case 'context_aside':
+        case 'context_done':
+        case 'intent_classified':
           break
       }
       nextTick(() => this.scrollToBottom())
@@ -243,19 +261,8 @@ export default defineComponent({
         this.sendMessage()
       }
     },
-    formatTime(d: Date | string): string {
-      return new Date(d).toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    },
     renderMarkdown(s: string): string {
       return md.render(s)
-    },
-    speakerLabel(role: string, agentName: string | undefined): string {
-      if (role === 'user') return 'YOU'
-      if (role === 'system') return 'SYSTEM'
-      return (agentName ?? 'agent').replace(/[^a-z0-9]/gi, '').slice(0, 18).toUpperCase() || 'AGENT'
     },
   },
 })
@@ -263,141 +270,111 @@ export default defineComponent({
 
 <template>
   <div class="page">
-    <header class="masthead">
-      <div class="title-row">
-        <h1 class="title" v-if="title || chat.currentSessionId">
-          <span v-if="title">{{ title }}</span>
-          <span v-else class="muted">Untitled</span>
-        </h1>
-        <h1 class="title untitled" v-else>
-          <span class="amp">¶</span>
-          new conversation
-        </h1>
-      </div>
-      <div class="meta-row">
-        <AgentSelector />
-        <div class="timing" v-if="chat.currentSessionId">
-          <span class="eyebrow">session</span>
-          <span class="hash">{{ chat.currentSessionId.slice(0, 8) }}</span>
-        </div>
-      </div>
-    </header>
-
     <div v-if="error" class="banner-error">
       <span>{{ error }}</span>
-      <button @click="error = ''">dismiss</button>
+      <button @click="error = ''" aria-label="Dismiss">
+        <span class="material-symbols-outlined">close</span>
+      </button>
     </div>
 
     <section class="scroller" ref="scroller" @scroll="handleScroll">
-      <div class="column">
+      <div class="thread">
         <button
           v-if="hasMoreHistory && messages.length > 0"
           class="load-more"
           @click="loadMoreHistory"
           :disabled="loadingHistory"
         >
-          {{ loadingHistory ? 'loading…' : '↑ earlier in this conversation' }}
+          {{ loadingHistory ? 'Loading…' : 'Load earlier messages' }}
         </button>
 
-        <div v-if="messages.length === 0 && !loadingHistory" class="empty-state">
-          <p class="lead">
-            <span class="drop-cap">A</span> blank page — type below to begin.
-          </p>
-          <p class="hint">
-            Conversations are saved automatically and live in the rail to the left.
-          </p>
+        <div v-if="!hasContent && !loadingHistory" class="empty">
+          <h2 class="empty-title">What can I help with?</h2>
+          <p class="empty-sub" v-if="chat.selectedAgent">Talking with {{ chat.selectedAgent.attributes.name }}</p>
+          <p class="empty-sub" v-else>Pick an agent to begin.</p>
         </div>
 
-        <article
-          v-for="(m, i) in messages"
-          :key="m.id"
-          class="turn"
-          :class="m.role"
-        >
-          <header class="turn-head">
-            <span class="speaker">{{ speakerLabel(m.role, chat.selectedAgent?.attributes.name) }}</span>
-            <span class="dot">·</span>
-            <span class="time">{{ formatTime(m.timestamp) }}</span>
-          </header>
+        <template v-for="(m, i) in messages" :key="m.id">
+          <div v-if="m.role === 'user'" class="row user">
+            <div class="bubble">{{ m.content }}</div>
+          </div>
 
-          <div v-if="m.reasoning" class="reasoning">
-            <div class="reasoning-head">
-              <span class="eyebrow">reasoning</span>
-              <span class="rule"></span>
+          <div v-else class="row assistant">
+            <div v-if="m.reasoning" class="reasoning">
+              <details open>
+                <summary>
+                  <span class="material-symbols-outlined">psychology</span>
+                  Thinking
+                </summary>
+                <div class="reasoning-body">{{ m.reasoning }}</div>
+              </details>
             </div>
-            <div class="reasoning-body">{{ m.reasoning }}</div>
+
+            <ul v-if="m.toolEvents && m.toolEvents.length" class="tools">
+              <li
+                v-for="(t, j) in m.toolEvents"
+                :key="j"
+                class="tool"
+                :class="[t.kind, t.kind === 'tool_result' ? `status-${t.status}` : '']"
+              >
+                <span class="material-symbols-outlined tool-icon">
+                  {{ t.kind === 'tool_use' ? 'bolt' : (t.status === 'success' ? 'check' : 'error') }}
+                </span>
+                <span class="tool-name">{{ t.name }}</span>
+                <span v-if="t.kind === 'tool_result'" class="tool-status">{{ t.status }}</span>
+              </li>
+            </ul>
+
+            <div
+              v-if="m.content"
+              class="prose"
+              v-html="renderMarkdown(m.content)"
+            ></div>
+            <div v-else-if="streaming && i === messages.length - 1" class="prose pending">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </div>
           </div>
-
-          <ul v-if="m.toolEvents && m.toolEvents.length" class="tools">
-            <li
-              v-for="(t, j) in m.toolEvents"
-              :key="j"
-              :class="['tool', t.kind, t.kind === 'tool_result' ? `status-${t.status}` : '']"
-            >
-              <span class="arrow" v-if="t.kind === 'tool_use'">→</span>
-              <span class="arrow" v-else-if="t.kind === 'tool_result'">←</span>
-              <span class="t-name">{{ t.name }}</span>
-              <span v-if="t.kind === 'tool_result'" class="t-status">{{ t.status }}</span>
-            </li>
-          </ul>
-
-          <div
-            v-if="m.role === 'user'"
-            class="prose user-prose"
-          >{{ m.content }}</div>
-          <div
-            v-else-if="m.content"
-            class="prose assistant-prose"
-            v-html="renderMarkdown(m.content)"
-          ></div>
-          <div
-            v-else-if="streaming && i === messages.length - 1"
-            class="prose pending"
-          >
-            <span v-if="thinking" class="thinking-text">— thinking</span>
-            <span v-else class="caret"></span>
-          </div>
-        </article>
-
-        <div v-if="streaming && messages[messages.length-1]?.role === 'assistant' && messages[messages.length-1]?.content" class="trailing-caret">
-          <span class="caret"></span>
-        </div>
+        </template>
       </div>
     </section>
 
-    <footer class="composer">
-      <div class="composer-inner">
-        <div class="composer-rail">
-          <span class="prompt-glyph">▷</span>
-        </div>
+    <footer class="composer-wrap">
+      <div class="composer" :class="{ disabled: !chat.selectedAgent }">
         <textarea
           v-model="currentMessage"
-          class="composer-input"
           rows="1"
-          :placeholder="chat.selectedAgent ? 'Type a message — Enter to send, Shift+Enter for newline.' : 'Pick an agent above to begin.'"
+          :placeholder="chat.selectedAgent ? `Message ${chat.selectedAgent.attributes.name}…` : 'Pick an agent below to begin.'"
           :disabled="streaming || !chat.selectedAgent"
           @keydown="handleKeydown"
+          ref="composer"
+          class="composer-input"
         ></textarea>
         <div class="composer-actions">
           <button
             v-if="streaming"
-            class="action cancel"
+            class="action stop"
             @click="cancel"
-            title="Cancel stream"
+            title="Stop generating"
           >
-            <span class="material-symbols-outlined">stop_circle</span>
-            cancel
+            <span class="material-symbols-outlined">stop</span>
           </button>
           <button
             v-else
             class="action send"
             :disabled="!currentMessage.trim() || !chat.selectedAgent"
             @click="sendMessage"
+            title="Send"
           >
-            send
-            <span class="kbd">⏎</span>
+            <span class="material-symbols-outlined">arrow_upward</span>
           </button>
         </div>
+      </div>
+      <div class="composer-foot">
+        <AgentSelector />
+        <IntentDropdown v-model:value="intentOverride" />
+        <span v-if="chat.currentSessionId" class="session-tag">
+          session · {{ chat.currentSessionId.slice(0, 8) }}
+        </span>
       </div>
     </footer>
   </div>
@@ -405,212 +382,325 @@ export default defineComponent({
 
 <style scoped lang="scss">
 .page {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   background-color: var(--bg);
 }
 
-// — Masthead —————————————————————————————————————————————————
-.masthead {
-  padding: 24px 40px;
-  border-bottom: 1px solid var(--rule-strong);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: var(--bg);
-}
-.title-row { display: flex; align-items: baseline; gap: 16px; }
-.title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 24px;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-  color: var(--ink);
-  &.untitled {
-    color: var(--ink-faint);
-  }
-  .amp {
-    font-style: italic;
-    color: var(--accent);
-    margin-right: 6px;
-  }
-}
-.meta-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
-// — Banner ————————————————————————————————————————————————
+// — Banner —————————————————————————————————————————
 .banner-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 40px;
-  background: var(--accent);
-  color: var(--bg);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  padding: 8px 20px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 13px;
+  border-bottom: 1px solid #fecaca;
   button {
-    background: var(--bg);
+    background: transparent;
     border: 0;
-    color: var(--accent);
-    text-transform: uppercase;
-    font-size: 9px;
-    padding: 2px 6px;
     cursor: pointer;
+    color: #991b1b;
+    display: inline-flex;
+    align-items: center;
+    .material-symbols-outlined { font-size: 18px; }
   }
 }
-
-// — Scroller / column ————————————————————————————————————————
-.scroller {
-  overflow-y: auto;
-  padding: 32px 40px 60px;
+:global(html.dark) .banner-error {
+  background: #2a1212;
+  color: #fca5a5;
+  border-color: #422525;
+  button { color: #fca5a5; }
 }
-.column {
-  max-width: 640px;
+
+// — Scroll —————————————————————————————————————————
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 24px 16px;
+}
+.thread {
+  max-width: 760px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 18px;
+}
+.load-more {
+  align-self: center;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.12s;
+  &:hover { background: var(--bg-soft); color: var(--ink); }
 }
 
-// — Empty state ——————————————————————————————————————————————
-.empty-state {
-  margin-top: 8vh;
-  .lead {
-    margin: 0 0 8px;
-    font-family: var(--font-display);
-    font-size: 22px;
-    color: var(--ink-muted);
-    font-style: italic;
+// — Empty state ——————————————————————————————————
+.empty {
+  text-align: center;
+  margin-top: 18vh;
+  .empty-title {
+    margin: 0 0 6px;
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.015em;
   }
-  .drop-cap {
-    font-family: var(--font-display);
-    font-size: 48px;
-    color: var(--accent);
-    float: left;
-    margin: 4px 8px 0 0;
+  .empty-sub {
+    margin: 0;
+    color: var(--ink-faint);
+    font-size: 14px;
   }
 }
 
-// — Turn ————————————————————————————————————————————————————
-.turn {
+// — User row ——————————————————————————————————————
+.row {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.turn-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: 4px;
-  .speaker { color: var(--ink); font-weight: 600; }
-}
-.turn.user .turn-head { border-bottom-color: var(--accent-soft); }
-.turn.user .turn-head .speaker { color: var(--accent); }
-
-// — Prose blocks ————————————————————————————————————————————————
-.prose {
-  font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--ink);
-
-  &.user-prose { white-space: pre-wrap; }
-  &.pending {
-    color: var(--ink-faint);
-    .thinking-text { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; }
+.row.user {
+  align-items: flex-end;
+  .bubble {
+    background: var(--user-bubble);
+    color: var(--ink);
+    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    max-width: min(80%, 540px);
+    white-space: pre-wrap;
+    line-height: 1.5;
+    font-size: 14.5px;
   }
+}
 
-  :deep(p) { margin: 0 0 1em; }
-  :deep(pre.hljs) {
-    margin: 1em 0;
-    padding: 12px 16px;
-    background: var(--bg-soft) !important;
+// — Assistant row ————————————————————————————————
+.row.assistant {
+  align-items: stretch;
+}
+
+.reasoning {
+  margin-bottom: 6px;
+  details {
     border: 1px solid var(--rule);
-    font-family: var(--font-mono);
-    font-size: 13px;
+    border-radius: var(--radius-md);
+    background: var(--bg-soft);
+    overflow: hidden;
+    summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 12.5px;
+      color: var(--ink-muted);
+      list-style: none;
+      &::-webkit-details-marker { display: none; }
+      .material-symbols-outlined { font-size: 16px; }
+    }
+    .reasoning-body {
+      padding: 10px 14px 14px;
+      font-size: 13px;
+      color: var(--ink-muted);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      border-top: 1px solid var(--rule);
+    }
+  }
+}
+
+.tools {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-muted);
+  .tool-icon { font-size: 14px; color: var(--ink-faint); }
+  .tool-name { color: var(--ink); font-weight: 500; }
+  .tool-status {
+    text-transform: lowercase;
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+  &.status-success {
+    .tool-icon { color: #16a34a; }
+    .tool-status { color: #16a34a; }
+  }
+  &.status-error {
+    .tool-icon { color: #dc2626; }
+    .tool-status { color: #dc2626; }
+  }
+}
+
+// — Prose ————————————————————————————————————————
+.prose {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  &.pending { color: var(--ink-faint); }
+  :deep(p) { margin: 0 0 0.9em; }
+  :deep(p:last-child) { margin-bottom: 0; }
+  :deep(strong) { font-weight: 600; }
+  :deep(em) { font-style: italic; }
+  :deep(a) { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+  :deep(ul), :deep(ol) { padding-left: 1.4em; margin: 0.4em 0 0.9em; }
+  :deep(li) { margin: 0.2em 0; }
+  :deep(blockquote) {
+    border-left: 3px solid var(--rule-strong);
+    margin: 0.6em 0;
+    padding: 0.1em 0 0.1em 0.9em;
+    color: var(--ink-muted);
+  }
+  :deep(h1), :deep(h2), :deep(h3) {
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    margin: 0.9em 0 0.4em;
+  }
+  :deep(h1) { font-size: 1.4em; }
+  :deep(h2) { font-size: 1.22em; }
+  :deep(h3) { font-size: 1.08em; }
+  :deep(pre.hljs) {
+    margin: 0.8em 0;
+    padding: 12px 14px;
+    background: var(--bg-deep) !important;
+    color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--rule);
   }
   :deep(code:not(pre code)) {
-    font-family: var(--font-mono);
-    background: var(--bg-soft);
-    padding: 1px 4px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.9em;
+    padding: 1px 5px;
+    background: var(--bg-deep);
+    border-radius: 4px;
   }
+  :deep(table) {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    font-size: 0.95em;
+  }
+  :deep(th), :deep(td) {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  :deep(th) { font-weight: 600; }
+  :deep(hr) { border: 0; height: 1px; background: var(--rule); margin: 1em 0; }
 }
 
-// — Reasoning block ——————————————————————————————————————————
-.reasoning {
-  margin: 4px 0 8px;
-  padding: 12px 16px;
-  background: var(--bg-soft);
-  border: 1px solid var(--rule);
-}
-.reasoning-head {
-  display: flex;
+// — Streaming dots ————————————————————————————————
+.dots {
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    text-transform: uppercase;
-    color: var(--ink-faint);
+  span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+    animation: blink 1.2s infinite;
+    &:nth-child(2) { animation-delay: 0.2s; }
+    &:nth-child(3) { animation-delay: 0.4s; }
   }
-  .rule { flex: 1; height: 1px; background: var(--rule); }
 }
-.reasoning-body {
-  font-family: var(--font-body);
-  font-style: italic;
-  font-size: 14px;
-  color: var(--ink-muted);
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+  40% { opacity: 1; transform: scale(1); }
 }
 
-// — Composer ————————————————————————————————————————————————
-.composer {
-  border-top: 1px solid var(--rule-strong);
+// — Composer ——————————————————————————————————————
+.composer-wrap {
+  flex-shrink: 0;
+  padding: 8px 24px 14px;
   background: var(--bg);
-  padding: 16px 40px 24px;
 }
-.composer-inner {
-  max-width: 640px;
+.composer {
+  max-width: 760px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: end;
-  gap: 12px;
-  border: 1px solid var(--rule-strong);
-  padding: 8px 12px;
-}
-.composer-rail { padding-bottom: 6px; .prompt-glyph { font-family: var(--font-mono); color: var(--accent); } }
-.composer-input {
-  font: inherit;
-  font-family: var(--font-body);
-  font-size: 16px;
-  background: transparent;
-  border: 0;
-  outline: none;
-  padding: 4px 0;
-  min-height: 24px;
-}
-.action {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
+  gap: 6px;
   background: var(--bg-soft);
   border: 1px solid var(--rule);
-  padding: 4px 10px;
+  border-radius: var(--radius-xl);
+  padding: 10px 10px 10px 16px;
+  transition: border-color 0.12s;
+  &:focus-within { border-color: var(--rule-strong); }
+  &.disabled { opacity: 0.7; }
+}
+.composer-foot {
+  max-width: 760px;
+  margin: 8px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.session-tag {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.composer-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  resize: none;
+  padding: 6px 0 4px;
+  min-height: 24px;
+  max-height: 220px;
+  width: 100%;
+  &::placeholder { color: var(--ink-faint); }
+  &:disabled { cursor: not-allowed; }
+}
+.composer-actions { display: flex; align-items: center; gap: 6px; }
+.action {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
   cursor: pointer;
-  &:hover { background: var(--ink); color: var(--bg); }
-  .kbd { opacity: 0.5; margin-left: 4px; }
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  background: var(--ink);
+  color: var(--bg);
+  &:disabled {
+    background: var(--rule-strong);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+  }
+  &:hover:not(:disabled) { transform: scale(1.05); }
+  &.stop { background: var(--ink); }
+  .material-symbols-outlined { font-size: 18px; }
 }
 </style>

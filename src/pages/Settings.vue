@@ -41,7 +41,7 @@ async function save() {
       .map((s) => s.trim())
       .filter(Boolean)
     await setSettings(settings.value)
-    success.value = 'Saved.'
+    success.value = 'Saved'
     setTimeout(() => (success.value = ''), 2000)
   } catch (e: any) {
     error.value = e?.message ?? String(e)
@@ -62,16 +62,15 @@ function back() {
         <span class="material-symbols-outlined">arrow_back</span>
         Back
       </button>
-      <h1 class="display">Settings</h1>
-      <span class="eyebrow">App configuration</span>
+      <h1 class="title">Settings</h1>
     </header>
 
     <div v-if="loading" class="loading">Loading…</div>
 
     <form v-else class="form" @submit.prevent="save">
-      <section class="card">
-        <h2 class="display section">OpenRouter</h2>
-        <p class="muted">
+      <section class="group">
+        <h2 class="group-title">OpenRouter</h2>
+        <p class="group-desc">
           Cloud agents become selectable when an API key is set. Get one at
           <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>.
         </p>
@@ -88,26 +87,26 @@ function back() {
         </label>
 
         <label class="field">
-          <span class="label">HTTP-Referer</span>
+          <span class="label">HTTP-Referer (optional)</span>
           <input
             v-model="settings.openrouter_referrer"
             type="text"
-            placeholder="https://example.com (optional)"
+            placeholder="https://example.com"
           />
         </label>
 
         <label class="field">
-          <span class="label">App title (X-Title)</span>
+          <span class="label">App title — X-Title (optional)</span>
           <input
             v-model="settings.openrouter_app_title"
             type="text"
-            placeholder="Harness (optional)"
+            placeholder="Harness"
           />
         </label>
       </section>
 
-      <section class="card">
-        <h2 class="display section">Ollama</h2>
+      <section class="group">
+        <h2 class="group-title">Ollama</h2>
         <label class="field">
           <span class="label">Host URL</span>
           <input
@@ -119,21 +118,20 @@ function back() {
         </label>
       </section>
 
-      <section class="card">
-        <h2 class="display section">Tool sandboxing</h2>
-        <p class="muted">
-          Phase-2 tools (<code>http_fetch</code>, <code>read_file</code>) only run when
-          their sandbox is configured.
+      <section class="group">
+        <h2 class="group-title">Tools</h2>
+        <p class="group-desc">
+          <code>http_fetch</code> and <code>read_file</code> only run when their sandbox is configured.
         </p>
 
         <label class="field">
-          <span class="label">http_fetch host allowlist</span>
+          <span class="label">http_fetch allowlist</span>
           <textarea
             v-model="allowlistText"
             placeholder="example.com&#10;api.github.com"
             rows="4"
           ></textarea>
-          <span class="hint">One host per line. Scheme stripped, case-insensitive.</span>
+          <span class="hint">One host per line.</span>
         </label>
 
         <label class="field">
@@ -149,10 +147,10 @@ function back() {
 
       <div class="actions">
         <button class="primary" type="submit" :disabled="saving">
-          {{ saving ? 'Saving…' : 'Save settings' }}
+          {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
-        <span v-if="error" class="error">{{ error }}</span>
-        <span v-if="success" class="success">{{ success }}</span>
+        <span v-if="error" class="msg err">{{ error }}</span>
+        <span v-if="success" class="msg ok">{{ success }}</span>
       </div>
     </form>
   </div>
@@ -162,167 +160,143 @@ function back() {
 .settings {
   height: 100%;
   overflow-y: auto;
-  padding: 32px 48px 64px;
-  max-width: 760px;
+  padding: 24px 32px 64px;
+  max-width: 720px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .head {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  column-gap: 18px;
-  row-gap: 4px;
-  margin-bottom: 36px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
 
   .back {
-    grid-row: 1 / span 2;
-    justify-self: start;
     background: transparent;
-    border: 1px solid var(--rule-strong);
-    border-radius: 999px;
-    padding: 6px 12px;
-    color: var(--ink-muted);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 5px 10px;
     cursor: pointer;
+    color: var(--ink-muted);
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    &:hover { color: var(--ink); border-color: var(--ink); }
-    .material-symbols-outlined { font-size: 14px; }
+    font-size: 13px;
+    transition: all 0.12s;
+    &:hover { color: var(--ink); background: var(--bg-soft); }
+    .material-symbols-outlined { font-size: 16px; }
   }
-  .display {
-    font-family: var(--font-display);
-    font-weight: 500;
-    font-size: 38px;
+  .title {
     margin: 0;
-    letter-spacing: -0.5px;
-  }
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--ink);
   }
 }
 
 .loading {
   color: var(--ink-faint);
-  font-style: italic;
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 28px;
 }
 
-.card {
-  background-color: var(--bg-soft);
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: var(--bg-soft);
   border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 22px 26px 24px;
+  border-radius: var(--radius-lg);
 
-  .section {
-    font-family: var(--font-display);
-    font-weight: 500;
-    font-size: 22px;
-    margin: 0 0 6px 0;
-    letter-spacing: -0.2px;
+  .group-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
   }
-  .muted {
+  .group-desc {
+    margin: 0;
+    font-size: 13px;
     color: var(--ink-muted);
-    font-size: 14px;
-    margin: 0 0 18px 0;
-    a { text-decoration: underline; text-decoration-color: var(--rule-strong); }
-  }
-  code {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    background: var(--bg-deep);
-    padding: 1px 5px;
-    border-radius: 3px;
+    line-height: 1.5;
+    a { color: #2563eb; text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px;
+      background: var(--bg-deep);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
   }
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 16px;
-
-  &:last-child { margin-bottom: 0; }
+  gap: 4px;
 
   .label {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12.5px;
+    color: var(--ink-muted);
     font-weight: 500;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
   }
   .hint {
     font-size: 12px;
     color: var(--ink-faint);
-    font-style: italic;
   }
   input, textarea {
     font: inherit;
     background-color: var(--bg);
-    border: 1px solid var(--rule-strong);
-    border-radius: 3px;
-    padding: 9px 11px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 8px 12px;
     color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.45;
-    transition: border-color 0.15s;
+    transition: border-color 0.12s, box-shadow 0.12s;
     &:focus {
-      outline: none;
-      border-color: var(--accent);
+      outline: 0;
+      border-color: var(--rule-strong);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
+    &::placeholder { color: var(--ink-faint); }
   }
   textarea {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 13px;
+    line-height: 1.5;
     resize: vertical;
-    min-height: 80px;
+    min-height: 90px;
   }
 }
 
 .actions {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-top: 8px;
-  .primary {
-    background-color: var(--ink);
-    color: var(--bg);
-    border: none;
-    padding: 10px 22px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    &:disabled { opacity: 0.5; cursor: not-allowed; }
-    &:hover:not(:disabled) { background-color: var(--accent); }
-  }
-  .error {
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-  .success {
-    color: var(--ink-muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-style: italic;
-  }
+  gap: 14px;
+  padding-top: 8px;
+}
+.primary {
+  background: var(--ink);
+  color: var(--bg);
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.12s;
+  &:hover:not(:disabled) { opacity: 0.9; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+.msg {
+  font-size: 13px;
+  &.err { color: #dc2626; }
+  &.ok { color: #16a34a; }
 }
 </style>

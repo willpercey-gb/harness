@@ -1,43 +1,35 @@
 // =============================================================================
-// Harness — editorial noir chat playground
-// Typography:  Fraunces (display, italic accents)
-//              Source Serif 4 (body prose)
-//              IBM Plex Mono (labels, agent names, timestamps, code)
-// Palette:     parchment (light) / charcoal (dark), oxblood/amber accent
+// Harness — neutral, product-feel chat UI
 // =============================================================================
 
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0&display=swap');
 
 :root {
-  // — Light (parchment) ——————————————————————————————————————————————
-  --bg:           #f5efe6;
-  --bg-soft:      #ede5d6;
-  --bg-deep:      #e3dac7;
-  --rule:         #1a16121a;
-  --rule-strong:  #1a161240;
-  --ink:          #1a1612;
-  --ink-muted:    #1a161299;
-  --ink-faint:    #1a161266;
-  --accent:       #8b1e1e;
-  --accent-soft:  #8b1e1e22;
-  --selection:    #d97a4a44;
+  // Light
+  --bg:           #ffffff;
+  --bg-soft:      #f7f7f6;
+  --bg-deep:      #efefee;
+  --bg-hover:     #f0f0ef;
+  --rule:         #00000010;
+  --rule-strong:  #00000020;
+  --ink:          #1f1f1f;
+  --ink-muted:    #5f5f5f;
+  --ink-faint:    #8a8a8a;
+  --accent:       #1f1f1f;
+  --accent-soft:  #1f1f1f0d;
+  --selection:    #d4d4d4;
+  --user-bubble:  #f0f0ef;
 
-  // — Depth (Sharp, not soft) —————————————————————————————————
-  --shadow-sm:     2px 2px 0px var(--rule-strong);
-  --shadow-md:     4px 4px 0px var(--rule-strong);
-  --shadow-lg:     8px 8px 0px var(--rule-strong);
+  // Sizing
+  --radius-sm:    6px;
+  --radius-md:    10px;
+  --radius-lg:    16px;
+  --radius-xl:    22px;
 
-  // — Typography ——————————————————————————————————————————————
-  --font-display: 'Fraunces', ui-serif, Georgia, serif;
-  --font-body:    'Source Serif 4', ui-serif, Charter, Georgia, serif;
-  --font-mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
-
-  font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.6;
-  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
-  font-optical-sizing: auto;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -47,31 +39,29 @@
 }
 
 html.dark {
-  --bg:           #161310;
-  --bg-soft:      #1f1b16;
-  --bg-deep:      #0e0c0a;
-  --rule:         #e7e0d61f;
-  --rule-strong:  #e7e0d63d;
-  --ink:          #e7e0d6;
-  --ink-muted:    #e7e0d699;
-  --ink-faint:    #e7e0d666;
-  --accent:       #d97706;
-  --accent-soft:  #d9770622;
-  --selection:    #d97a4a33;
-
-  --shadow-sm:     2px 2px 0px rgba(0, 0, 0, 0.5);
-  --shadow-md:     4px 4px 0px rgba(0, 0, 0, 0.5);
-  --shadow-lg:     8px 8px 0px rgba(0, 0, 0, 0.5);
+  --bg:           #1c1c1c;
+  --bg-soft:      #161616;
+  --bg-deep:      #111111;
+  --bg-hover:     #2a2a2a;
+  --rule:         #ffffff14;
+  --rule-strong:  #ffffff26;
+  --ink:          #ececec;
+  --ink-muted:    #a0a0a0;
+  --ink-faint:    #6e6e6e;
+  --accent:       #ececec;
+  --accent-soft:  #ffffff10;
+  --selection:    #4a4a4a;
+  --user-bubble:  #2a2a2a;
 
   background-color: var(--bg);
   color: var(--ink);
 }
 
 ::selection { background: var(--selection); color: var(--ink); }
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--rule-strong); }
-::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); border: 2px solid transparent; background-clip: padding-box; }
 
 body, #app {
   margin: 0;
@@ -82,43 +72,10 @@ body, #app {
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; }
 
-// — Atmospheric grain overlay ——————————————————————————————————
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.03;
-  mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-}
-html.dark body::before { mix-blend-mode: screen; opacity: 0.04; }
-
-// — Material symbols sized for editorial restraint ——
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
-  font-weight: normal;
-  font-style: normal;
   font-size: 18px;
   line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
   display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }
-
-// — Reusable typographic rhythm ————————————————————————
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.rule { height: 1px; background: var(--rule); border: 0; }
-.rule-strong { height: 1px; background: var(--rule-strong); border: 0; }

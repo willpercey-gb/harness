@@ -69,37 +69,10 @@ function relativeDate(s: string): string {
 
 <template>
   <aside class="left">
-    <header class="brand">
-      <RouterLink to="/" class="wordmark" aria-label="Harness home">
-        <span class="wordmark-letter">H</span>
-        <span class="wordmark-rest">arness</span>
-      </RouterLink>
-      <div class="brand-actions">
-        <RouterLink to="/settings" class="theme" title="Settings" aria-label="Settings">
-          <span class="material-symbols-outlined">settings</span>
-        </RouterLink>
-        <button
-          class="theme"
-          :title="darkMode ? 'Light mode' : 'Dark mode'"
-          @click="$emit('toggle-dark')"
-        >
-          <span class="material-symbols-outlined">
-            {{ darkMode ? 'wb_sunny' : 'dark_mode' }}
-          </span>
-        </button>
-      </div>
-    </header>
-
-    <button class="new-chat" @click="startNew">
-      <span class="plus">+</span>
-      <span class="label">New conversation</span>
-      <span class="kbd">⏎</span>
+    <button class="new-row" @click="startNew">
+      <span class="material-symbols-outlined">add</span>
+      <span>New conversation</span>
     </button>
-
-    <div class="section-rail">
-      <span class="eyebrow">Sessions</span>
-      <span class="count" v-if="sessions.length">·&nbsp;{{ sessions.length }}</span>
-    </div>
 
     <nav class="sessions">
       <div v-if="loading" class="empty">Loading…</div>
@@ -114,225 +87,136 @@ function relativeDate(s: string): string {
         @click="open(s)"
       >
         <span class="title">{{ s.title || 'Untitled' }}</span>
-        <span class="meta">
-          <span class="time">{{ relativeDate(s.lastMessageAt) }}</span>
-          <span class="dot">·</span>
-          <span class="msgs">{{ s.messageCount }}</span>
-        </span>
+        <span class="meta">{{ relativeDate(s.lastMessageAt) }}</span>
         <span
           class="delete material-symbols-outlined"
-          title="Delete session"
+          title="Delete"
           @click="remove(s, $event)"
         >close</span>
       </button>
     </nav>
+
+    <footer class="bottom">
+      <RouterLink to="/settings" class="footer-btn" :class="{ active: route.path === '/settings' }" title="Settings">
+        <span class="material-symbols-outlined">settings</span>
+        <span>Settings</span>
+      </RouterLink>
+      <button class="footer-btn icon-only" :title="darkMode ? 'Light mode' : 'Dark mode'" @click="$emit('toggle-dark')">
+        <span class="material-symbols-outlined">{{ darkMode ? 'light_mode' : 'dark_mode' }}</span>
+      </button>
+    </footer>
   </aside>
 </template>
 
 <style scoped lang="scss">
 .left {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100vh;
   background-color: var(--bg-soft);
-  padding: 22px 0 0 0;
-  overflow: hidden;
+  border-right: 1px solid var(--rule);
 }
 
-// Brand row -----------------------------------------------------------
-.brand {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 0 22px 18px;
-  border-bottom: 1px solid var(--rule);
-}
-.wordmark {
-  font-family: var(--font-display);
-  font-weight: 300;
-  font-size: 24px;
-  letter-spacing: -0.03em;
-  color: var(--ink);
-  display: inline-flex;
-  align-items: baseline;
-
-  .wordmark-letter {
-    font-weight: 400;
-    font-style: italic;
-    color: var(--accent);
-    margin-right: -1px;
-    font-variation-settings: 'opsz' 36;
-  }
-  .wordmark-rest {
-    font-feature-settings: 'kern', 'liga';
-    opacity: 0.9;
-  }
-}
-.brand-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.theme {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  color: var(--ink-faint);
-  padding: 4px;
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-  transition: color 0.18s;
-  &:hover { color: var(--ink); }
-  .material-symbols-outlined { font-size: 18px; }
-}
-
-// New chat -----------------------------------------------------------
-.new-chat {
-  margin: 18px 16px 14px;
-  padding: 10px 14px;
-  background: var(--bg);
-  border: 1px solid var(--rule-strong);
-  border-radius: 0;
+.new-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 14px 8px 8px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
   text-align: left;
-  box-shadow: var(--shadow-sm);
-
-  .plus {
-    font-family: var(--font-mono);
-    font-weight: 400;
-    font-size: 16px;
-    color: var(--accent);
-    width: 12px;
-  }
-  .label {
-    flex: 1;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink);
-    opacity: 0.8;
-  }
-  .kbd {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--ink-faint);
-    background: transparent;
-    padding: 1px 4px;
-    border: 1px solid var(--rule);
-    opacity: 0.6;
-  }
-  &:hover {
-    background: var(--bg-deep);
-    border-color: var(--ink-faint);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-    .kbd { color: var(--ink-muted); border-color: var(--rule-strong); opacity: 1; }
-  }
-  &:active {
-    transform: translateY(0);
-    box-shadow: var(--shadow-sm);
-  }
+  transition: background 0.12s;
+  &:hover { background: var(--bg-hover); }
+  .material-symbols-outlined { font-size: 18px; color: var(--ink-muted); }
 }
 
-// Section rail ------------------------------------------------------
-.section-rail {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 22px 8px;
-  .eyebrow {
-    font-size: 9.5px;
-    opacity: 0.7;
-  }
-  .count {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    color: var(--ink-faint);
-    letter-spacing: 0.05em;
-  }
-}
-
-// Session list ------------------------------------------------------
 .sessions {
   overflow-y: auto;
-  padding: 0 8px 24px;
+  padding: 4px 8px 8px;
   display: flex;
   flex-direction: column;
 }
 .empty {
-  padding: 32px 14px;
-  font-family: var(--font-body);
-  font-style: italic;
+  padding: 14px 12px;
+  font-size: 13px;
   color: var(--ink-faint);
-  font-size: 14px;
-  text-align: center;
 }
 .session {
   display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  grid-template-areas:
-    "title del"
-    "meta del";
-  gap: 2px 12px;
-  padding: 12px 14px;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
   position: relative;
-  transition: all 0.18s ease;
-  margin-bottom: 2px;
+  transition: background 0.12s;
 
   .title {
-    grid-area: title;
-    font-family: var(--font-display);
-    font-weight: 400;
-    font-size: 15px;
-    letter-spacing: -0.01em;
-    color: var(--ink-muted);
+    font-size: 13.5px;
+    color: var(--ink);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    line-height: 1.3;
   }
   .meta {
-    grid-area: meta;
-    display: flex;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11.5px;
     color: var(--ink-faint);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
   }
   .delete {
-    grid-area: del;
-    align-self: center;
     color: var(--ink-faint);
     opacity: 0;
-    transition: all 0.16s;
     font-size: 16px;
-    &:hover { color: var(--accent); transform: scale(1.1); }
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    &:hover { color: var(--ink); background: var(--rule-strong); }
   }
 
   &:hover {
-    background: var(--bg);
-    .title { color: var(--ink); }
+    background: var(--bg-hover);
     .delete { opacity: 1; }
+    .meta { opacity: 0; }
   }
   &.active {
-    background: var(--bg);
-    box-shadow: var(--shadow-sm);
-    .title { color: var(--ink); font-weight: 500; }
-    .meta { color: var(--ink-muted); }
+    background: var(--bg-hover);
+    .title { font-weight: 500; }
   }
+}
+
+.bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 8px 8px 12px;
+  border-top: 1px solid var(--rule);
+}
+.footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-decoration: none;
+  flex: 1;
+  transition: background 0.12s, color 0.12s;
+  &:hover { background: var(--bg-hover); color: var(--ink); }
+  &.active { background: var(--bg-hover); color: var(--ink); }
+  &.icon-only { flex: 0; }
+  .material-symbols-outlined { font-size: 17px; }
 }
 </style>

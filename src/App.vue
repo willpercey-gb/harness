@@ -38,19 +38,23 @@ function toggleRight() {
 <style scoped lang="scss">
 .app-shell {
   display: grid;
-  grid-template-columns: 268px 1fr 44px;
+  grid-template-columns: 260px 1fr 0px;
+  grid-template-rows: 100vh;
   height: 100vh;
-  transition: grid-template-columns 0.32s cubic-bezier(0.4, 0, 0.15, 1);
+  background-color: var(--bg);
+  transition: grid-template-columns 0.25s ease;
 
   &.right-open {
-    grid-template-columns: 268px 1fr 280px;
+    grid-template-columns: 260px 1fr 280px;
   }
 }
 .main-stage {
   position: relative;
   overflow: hidden;
-  border-left: 1px solid var(--rule);
-  border-right: 1px solid var(--rule);
   background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 </style>
