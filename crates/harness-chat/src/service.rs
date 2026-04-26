@@ -205,10 +205,19 @@ pub async fn run_chat(
             // process; for now we pin it to the user's home so the CLI
             // doesn't try to discover CLAUDE.md / plugins from
             // wherever harness happens to be run from.
+            //
+            // `--dangerously-skip-permissions` is on so the spawned
+            // CLI doesn't block waiting for permission prompts that
+            // can't be answered through harness's Tauri UI.
             let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            let primary = ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd.clone());
-            let summary_model: Arc<dyn Model> =
-                Arc::new(ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd));
+            let primary = ClaudeCliModel::new(agent.model_id.clone())
+                .with_cwd(cwd.clone())
+                .with_dangerously_skip_permissions(true);
+            let summary_model: Arc<dyn Model> = Arc::new(
+                ClaudeCliModel::new(agent.model_id.clone())
+                    .with_cwd(cwd)
+                    .with_dangerously_skip_permissions(true),
+            );
             with_tools(
                 Agent::builder()
                     .model(primary)
