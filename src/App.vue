@@ -26,6 +26,7 @@ function toggleRight() {
 </script>
 
 <template>
+  <div class="drag-strip" data-tauri-drag-region></div>
   <div class="app-shell" :class="{ 'right-open': rightOpen }">
     <LeftSidebar :dark-mode="darkMode" @toggle-dark="setDark(!darkMode)" />
     <main class="main-stage">
@@ -36,6 +37,15 @@ function toggleRight() {
 </template>
 
 <style scoped lang="scss">
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h, 28px);
+  z-index: 50;
+  -webkit-app-region: drag;
+}
 .app-shell {
   display: grid;
   grid-template-columns: 260px 1fr 0px;

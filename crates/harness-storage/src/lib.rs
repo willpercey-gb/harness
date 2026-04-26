@@ -63,6 +63,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_all_filters_deleted() {
+        let db = fresh().await;
+        let a = sessions::create(&db, "first", "ollama:x").await.unwrap();
+        let b = sessions::create(&db, "second", "ollama:y").await.unwrap();
+        sessions::soft_delete(&db, &a.id.id.to_string()).await.unwrap();
+        let listed = sessions::list_all(&db, 50, 0).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].title, "second");
+        assert_eq!(sessions::count_all(&db).await.unwrap(), 1);
+        let _ = b;
+    }
+
+    #[tokio::test]
     async fn list_for_agent_filters_deleted() {
         let db = fresh().await;
         let _a = sessions::create(&db, "a", "ollama:x").await.unwrap();

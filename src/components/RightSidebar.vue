@@ -79,7 +79,7 @@ const hasSession = computed(() => !!chat.currentSessionId)
 }
 .toggle {
   position: fixed;
-  top: 12px;
+  top: calc(var(--titlebar-h, 32px) + 8px);
   right: 12px;
   width: 32px;
   height: 32px;
@@ -100,7 +100,7 @@ const hasSession = computed(() => !!chat.currentSessionId)
   .material-symbols-outlined { font-size: 18px; }
 }
 .content {
-  padding: 56px 18px 18px;
+  padding: calc(var(--titlebar-h, 32px) + 24px) 18px 18px;
   display: flex;
   flex-direction: column;
   gap: 18px;

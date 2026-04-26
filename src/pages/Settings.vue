@@ -160,7 +160,7 @@ function back() {
 .settings {
   height: 100%;
   overflow-y: auto;
-  padding: 24px 32px 64px;
+  padding: calc(var(--titlebar-h, 32px) + 24px) 32px 64px;
   max-width: 720px;
   margin: 0 auto;
   width: 100%;

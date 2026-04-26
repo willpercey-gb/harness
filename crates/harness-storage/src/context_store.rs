@@ -62,10 +62,13 @@ impl ConversationContext {
 struct ContextRow {
     #[serde(default)]
     context_anchor: Option<String>,
+    /// Stored as `option<array>` in surreal so legacy rows that
+    /// pre-date the context schema (where the field is NONE) survive
+    /// strict type validation. Treat NONE / missing as an empty list.
     #[serde(default)]
-    context_priorities: Vec<ContextCard>,
+    context_priorities: Option<Vec<ContextCard>>,
     #[serde(default)]
-    context_asides: Vec<ContextCard>,
+    context_asides: Option<Vec<ContextCard>>,
     #[serde(default)]
     context_updated_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -85,8 +88,8 @@ pub async fn load(db: &HarnessDb, session_id: &str) -> Result<ConversationContex
     let row = rows.into_iter().next().ok_or(StorageError::NotFound)?;
     Ok(ConversationContext {
         anchor: row.context_anchor,
-        priorities: row.context_priorities,
-        asides: row.context_asides,
+        priorities: row.context_priorities.unwrap_or_default(),
+        asides: row.context_asides.unwrap_or_default(),
         updated_at: row.context_updated_at,
         turns_since_refresh: row.context_turns_since_refresh,
     })

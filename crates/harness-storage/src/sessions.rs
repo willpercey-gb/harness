@@ -160,8 +160,32 @@ pub async fn rename(db: &HarnessDb, session_id: &str, title: &str) -> Result<()>
 }
 
 pub async fn soft_delete(db: &HarnessDb, session_id: &str) -> Result<()> {
-    db.query("UPDATE type::thing('chat_session', $id) SET deleted_at = time::now()")
+    let mut res = db
+        .query(
+            "UPDATE ONLY type::thing('chat_session', $id) \
+             SET deleted_at = time::now() RETURN AFTER",
+        )
         .bind(("id", session_id.to_string()))
-        .await?;
-    Ok(())
+        .await
+        .map_err(|e| {
+            tracing::warn!("soft_delete query: {e}");
+            e
+        })?;
+    let updated: Option<ChatSession> = res.take(0).map_err(|e| {
+        tracing::warn!("soft_delete decode: {e}");
+        crate::error::StorageError::Db(e.to_string())
+    })?;
+    match updated {
+        Some(s) => {
+            tracing::info!(
+                "soft_delete: archived chat_session:{} (deleted_at={:?})",
+                s.id.id, s.deleted_at
+            );
+            Ok(())
+        }
+        None => {
+            tracing::warn!("soft_delete: no record found for session_id={session_id}");
+            Err(crate::error::StorageError::NotFound)
+        }
+    }
 }

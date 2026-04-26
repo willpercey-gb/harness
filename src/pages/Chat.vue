@@ -399,6 +399,7 @@ export default defineComponent({
   flex: 1;
   min-height: 0;
   background-color: var(--bg);
+  padding-top: 8px;
 }
 
 // — Banner —————————————————————————————————————————
@@ -646,7 +647,7 @@ export default defineComponent({
 // — Composer ——————————————————————————————————————
 .composer-wrap {
   flex-shrink: 0;
-  padding: 8px 24px 14px;
+  padding: 16px 24px 32px;
   background: var(--bg);
 }
 .composer {
@@ -681,7 +682,7 @@ export default defineComponent({
   flex-shrink: 0;
   display: flex;
   justify-content: center;
-  padding: 10px 24px 4px;
+  padding: 6px 24px 4px;
   background: var(--bg);
 }
 .session-pill {

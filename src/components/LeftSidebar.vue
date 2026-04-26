@@ -14,6 +14,7 @@ const chat = useChatStore()
 
 const sessions = ref<ChatSession[]>([])
 const loading = ref(false)
+const deleteError = ref<string>('')
 
 async function reload() {
   loading.value = true
@@ -38,16 +39,19 @@ function open(session: ChatSession) {
 }
 
 async function remove(session: ChatSession) {
+  console.log('[delete] clicked', session.sessionId)
+  deleteError.value = ''
   try {
     await deleteSession(session.sessionId)
-  } catch (e) {
-    // Surface the error so a future UI hook can show it; for now just
-    // log so the user sees something in the dev console.
-    console.error('delete session failed', e)
+    console.log('[delete] backend ok')
+  } catch (e: any) {
+    console.error('[delete] backend rejected', e)
+    deleteError.value = `Delete failed: ${e?.message ?? String(e)}`
     return
   }
   if (chat.currentSessionId === session.sessionId) chat.newChat()
-  reload()
+  await reload()
+  console.log('[delete] reloaded; session count =', sessions.value.length)
 }
 
 function startNew() {
@@ -76,6 +80,10 @@ function relativeDate(s: string): string {
     </button>
 
     <nav class="sessions">
+      <div v-if="deleteError" class="error-banner" @click="deleteError = ''">
+        <span>{{ deleteError }}</span>
+        <span class="material-symbols-outlined">close</span>
+      </div>
       <div v-if="loading" class="empty">Loading…</div>
       <div v-else-if="sessions.length === 0" class="empty">No conversations yet.</div>
 
@@ -125,7 +133,7 @@ function relativeDate(s: string): string {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 14px 8px 8px;
+  margin: calc(var(--titlebar-h, 32px) + 14px) 8px 8px;
   padding: 10px 12px;
   background: transparent;
   border: 0;
@@ -150,6 +158,21 @@ function relativeDate(s: string): string {
   padding: 14px 12px;
   font-size: 13px;
   color: var(--ink-faint);
+}
+.error-banner {
+  margin: 4px 8px 8px;
+  padding: 8px 10px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  .material-symbols-outlined { font-size: 14px; }
 }
 .session {
   display: grid;
