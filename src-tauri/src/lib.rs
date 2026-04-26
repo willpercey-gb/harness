@@ -29,6 +29,8 @@ pub fn run() {
             commands::sessions::delete_session,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
+            commands::settings::settings_get,
+            commands::settings::settings_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

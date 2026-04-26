@@ -172,166 +172,178 @@ function costLabel(c: string) {
 .trigger {
   display: inline-flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
   background: transparent;
   border: 0;
-  padding: 6px 0;
+  padding: 8px 0;
   cursor: pointer;
   color: var(--ink);
   border-bottom: 1px solid var(--rule);
-  transition: border-color 0.18s, color 0.18s;
+  transition: all 0.2s ease;
 
   .eyebrow {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--ink-faint);
-    letter-spacing: 0.18em;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
+    opacity: 0.8;
   }
   .name {
     font-family: var(--font-display);
-    font-size: 18px;
-    font-weight: 400;
+    font-size: 19px;
+    font-weight: 300;
     font-style: italic;
     color: var(--ink);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
     .muted { color: var(--ink-faint); font-style: italic; }
   }
   .caret {
-    font-size: 16px;
+    font-size: 18px;
     color: var(--ink-faint);
-    transform: translateY(2px);
-    transition: transform 0.2s;
+    transform: translateY(3px);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
   &:hover {
-    border-color: var(--rule-strong);
-    .caret { color: var(--ink); }
+    border-color: var(--ink-faint);
+    .caret { color: var(--accent); }
+  }
+  &.disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 }
 
 // — Dropdown panel ——————————————————————————————————————————————
 .panel {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 12px);
   left: 0;
-  width: min(560px, 80vw);
-  max-height: 480px;
+  width: min(600px, 85vw);
+  max-height: 520px;
   background: var(--bg);
   border: 1px solid var(--rule-strong);
   z-index: 50;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(8px);
 }
 .panel-head {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0;
   border-bottom: 1px solid var(--rule);
+  background: var(--bg-soft);
 }
 .search {
   font: inherit;
   font-family: var(--font-body);
-  font-size: 14px;
-  padding: 12px 14px;
+  font-size: 15px;
+  padding: 14px 18px;
   background: transparent;
   border: 0;
   color: var(--ink);
-  &::placeholder { color: var(--ink-faint); font-style: italic; }
-  &:focus { outline: 0; background: var(--bg-soft); }
+  &::placeholder { color: var(--ink-faint); font-style: italic; opacity: 0.6; }
+  &:focus { outline: 0; background: var(--bg); }
 }
 .details-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 20px;
   background: transparent;
   border: 0;
   border-left: 1px solid var(--rule);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  letter-spacing: 0.12em;
   color: var(--ink-muted);
   text-transform: uppercase;
-  &:hover { color: var(--ink); background: var(--bg-soft); }
-  .material-symbols-outlined { font-size: 16px; }
+  transition: all 0.2s;
+  &:hover { color: var(--ink); background: var(--bg); }
+  .material-symbols-outlined { font-size: 18px; }
 }
 .filters {
   border-bottom: 1px solid var(--rule);
-  padding: 12px 14px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  background: var(--bg-soft);
 }
 .filter-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   .eyebrow {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 9.5px;
     color: var(--ink-faint);
-    letter-spacing: 0.16em;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    margin-right: 6px;
-    min-width: 60px;
+    margin-right: 8px;
+    min-width: 70px;
   }
 }
 .chip {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  background: transparent;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  background: var(--bg);
   border: 1px solid var(--rule);
   color: var(--ink-muted);
   cursor: pointer;
   text-transform: lowercase;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  transition: all 0.16s;
-  .n { color: var(--ink-faint); }
-  &:hover { color: var(--ink); border-color: var(--rule-strong); }
+  gap: 6px;
+  transition: all 0.2s;
+  border-radius: 2px;
+  .n { color: var(--ink-faint); font-size: 0.9em; }
+  &:hover { color: var(--ink); border-color: var(--rule-strong); transform: translateY(-1px); }
   &.on {
     color: var(--bg);
-    background: var(--ink);
-    border-color: var(--ink);
-    .n { color: var(--bg); opacity: 0.7; }
+    background: var(--accent);
+    border-color: var(--accent);
+    .n { color: var(--bg); opacity: 0.8; }
   }
 }
 
 // — Results list ——————————————————————————————————————————————
 .results {
   overflow-y: auto;
-  padding: 6px 0 12px;
+  padding: 8px 0 16px;
 }
 .empty {
-  padding: 24px 14px;
+  padding: 40px 18px;
   font-family: var(--font-body);
   font-style: italic;
   color: var(--ink-faint);
+  text-align: center;
   &.err { color: var(--accent); }
 }
 .group-label {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 14px 14px 6px;
+  gap: 12px;
+  padding: 20px 18px 8px;
   .eyebrow {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--ink);
-    letter-spacing: 0.18em;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
+    font-weight: 500;
   }
   .rule { height: 1px; background: var(--rule); }
   .group-count {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--ink-faint);
   }
 }
@@ -342,20 +354,21 @@ function costLabel(c: string) {
   grid-template-areas:
     "name meta"
     "desc desc";
-  gap: 4px 12px;
-  padding: 10px 14px;
+  gap: 4px 16px;
+  padding: 14px 18px;
   background: transparent;
   border: 0;
-  border-left: 2px solid transparent;
   cursor: pointer;
   text-align: left;
-  transition: background 0.14s, border-color 0.14s;
+  transition: all 0.2s ease;
+  margin: 0 8px;
+  border-radius: 4px;
 
   .agent-name {
     grid-area: name;
     font-family: var(--font-display);
     font-weight: 400;
-    font-size: 16px;
+    font-size: 17px;
     color: var(--ink);
     letter-spacing: -0.01em;
   }
@@ -363,39 +376,43 @@ function costLabel(c: string) {
     grid-area: meta;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     justify-self: end;
     font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.06em;
-    text-transform: lowercase;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     color: var(--ink-muted);
     .dim { color: var(--ink-faint); }
-    .tools { color: var(--accent); }
+    .tools { color: var(--accent); font-weight: 500; }
     .warn { color: var(--accent); font-style: italic; }
   }
   .agent-desc {
     grid-area: desc;
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--ink-muted);
-    line-height: 1.45;
+    line-height: 1.5;
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
+    opacity: 0.8;
   }
 
   &:hover:not(.disabled) {
     background: var(--bg-soft);
-    border-left-color: var(--accent);
+    transform: translateX(4px);
+    .agent-name { color: var(--accent); }
+    .agent-desc { opacity: 1; }
   }
   &.selected {
     background: var(--bg-soft);
-    border-left-color: var(--accent);
+    box-shadow: var(--shadow-sm);
+    .agent-name { font-weight: 500; color: var(--accent); }
   }
   &.disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
   }
 }

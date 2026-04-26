@@ -74,15 +74,20 @@ function relativeDate(s: string): string {
         <span class="wordmark-letter">H</span>
         <span class="wordmark-rest">arness</span>
       </RouterLink>
-      <button
-        class="theme"
-        :title="darkMode ? 'Light mode' : 'Dark mode'"
-        @click="$emit('toggle-dark')"
-      >
-        <span class="material-symbols-outlined">
-          {{ darkMode ? 'wb_sunny' : 'dark_mode' }}
-        </span>
-      </button>
+      <div class="brand-actions">
+        <RouterLink to="/settings" class="theme" title="Settings" aria-label="Settings">
+          <span class="material-symbols-outlined">settings</span>
+        </RouterLink>
+        <button
+          class="theme"
+          :title="darkMode ? 'Light mode' : 'Dark mode'"
+          @click="$emit('toggle-dark')"
+        >
+          <span class="material-symbols-outlined">
+            {{ darkMode ? 'wb_sunny' : 'dark_mode' }}
+          </span>
+        </button>
+      </div>
     </header>
 
     <button class="new-chat" @click="startNew">
@@ -144,22 +149,29 @@ function relativeDate(s: string): string {
 }
 .wordmark {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  font-weight: 300;
+  font-size: 24px;
+  letter-spacing: -0.03em;
   color: var(--ink);
   display: inline-flex;
   align-items: baseline;
 
   .wordmark-letter {
-    font-weight: 600;
+    font-weight: 400;
     font-style: italic;
     color: var(--accent);
-    margin-right: -2px;
+    margin-right: -1px;
+    font-variation-settings: 'opsz' 36;
   }
   .wordmark-rest {
     font-feature-settings: 'kern', 'liga';
+    opacity: 0.9;
   }
+}
+.brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .theme {
   background: transparent;
@@ -169,6 +181,7 @@ function relativeDate(s: string): string {
   padding: 4px;
   display: inline-flex;
   align-items: center;
+  text-decoration: none;
   transition: color 0.18s;
   &:hover { color: var(--ink); }
   .material-symbols-outlined { font-size: 18px; }
@@ -176,8 +189,8 @@ function relativeDate(s: string): string {
 
 // New chat -----------------------------------------------------------
 .new-chat {
-  margin: 18px 18px 14px;
-  padding: 12px 14px;
+  margin: 18px 16px 14px;
+  padding: 10px 14px;
   background: var(--bg);
   border: 1px solid var(--rule-strong);
   border-radius: 0;
@@ -185,34 +198,45 @@ function relativeDate(s: string): string {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  transition: all 0.18s;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   text-align: left;
+  box-shadow: var(--shadow-sm);
 
   .plus {
     font-family: var(--font-mono);
     font-weight: 400;
-    font-size: 15px;
+    font-size: 16px;
     color: var(--accent);
     width: 12px;
   }
   .label {
     flex: 1;
     font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.04em;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--ink);
+    opacity: 0.8;
   }
   .kbd {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--ink-faint);
     background: transparent;
-    padding: 2px 5px;
+    padding: 1px 4px;
     border: 1px solid var(--rule);
+    opacity: 0.6;
   }
   &:hover {
     background: var(--bg-deep);
-    .kbd { color: var(--ink-muted); border-color: var(--rule-strong); }
+    border-color: var(--ink-faint);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    .kbd { color: var(--ink-muted); border-color: var(--rule-strong); opacity: 1; }
+  }
+  &:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
   }
 }
 
@@ -221,10 +245,14 @@ function relativeDate(s: string): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 22px 10px;
+  padding: 12px 22px 8px;
+  .eyebrow {
+    font-size: 9.5px;
+    opacity: 0.7;
+  }
   .count {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 9.5px;
     color: var(--ink-faint);
     letter-spacing: 0.05em;
   }
@@ -233,16 +261,17 @@ function relativeDate(s: string): string {
 // Session list ------------------------------------------------------
 .sessions {
   overflow-y: auto;
-  padding: 0 8px 16px;
+  padding: 0 8px 24px;
   display: flex;
   flex-direction: column;
 }
 .empty {
-  padding: 20px 14px;
+  padding: 32px 14px;
   font-family: var(--font-body);
   font-style: italic;
   color: var(--ink-faint);
-  font-size: 13.5px;
+  font-size: 14px;
+  text-align: center;
 }
 .session {
   display: grid;
@@ -251,55 +280,59 @@ function relativeDate(s: string): string {
   grid-template-areas:
     "title del"
     "meta del";
-  gap: 4px 12px;
-  padding: 11px 14px 11px 14px;
+  gap: 2px 12px;
+  padding: 12px 14px;
   background: transparent;
   border: 0;
-  border-left: 2px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
   text-align: left;
   position: relative;
-  transition: background 0.16s, border-color 0.16s;
+  transition: all 0.18s ease;
+  margin-bottom: 2px;
 
   .title {
     grid-area: title;
     font-family: var(--font-display);
     font-weight: 400;
-    font-size: 14.5px;
-    letter-spacing: -0.005em;
-    color: var(--ink);
+    font-size: 15px;
+    letter-spacing: -0.01em;
+    color: var(--ink-muted);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    line-height: 1.25;
+    line-height: 1.3;
   }
   .meta {
     grid-area: meta;
     display: flex;
     gap: 6px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--ink-faint);
     letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
   .delete {
     grid-area: del;
     align-self: center;
     color: var(--ink-faint);
     opacity: 0;
-    transition: opacity 0.16s, color 0.16s;
+    transition: all 0.16s;
     font-size: 16px;
-    &:hover { color: var(--accent); }
+    &:hover { color: var(--accent); transform: scale(1.1); }
   }
 
   &:hover {
     background: var(--bg);
+    .title { color: var(--ink); }
     .delete { opacity: 1; }
   }
   &.active {
     background: var(--bg);
-    border-left-color: var(--accent);
-    .title { color: var(--ink); }
+    box-shadow: var(--shadow-sm);
+    .title { color: var(--ink); font-weight: 500; }
+    .meta { color: var(--ink-muted); }
   }
 }
 </style>

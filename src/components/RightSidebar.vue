@@ -54,26 +54,29 @@ defineEmits<{ (e: 'toggle'): void }>()
   }
 }
 .content {
-  padding: 60px 22px 22px;
+  padding: 80px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   height: 100%;
 
   .eyebrow.vertical {
     font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.18em;
+    font-size: 10px;
+    letter-spacing: 0.25em;
     text-transform: uppercase;
     color: var(--ink-faint);
+    opacity: 0.6;
+    margin-bottom: 8px;
   }
   .placeholder {
     font-family: var(--font-body);
-    font-size: 14px;
-    line-height: 1.6;
+    font-size: 15px;
+    line-height: 1.7;
     color: var(--ink-faint);
     font-style: italic;
     margin: 0;
+    opacity: 0.8;
   }
 }
 .rail {
@@ -88,11 +91,12 @@ defineEmits<{ (e: 'toggle'): void }>()
     transform: rotate(-90deg);
     transform-origin: center;
     font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.3em;
+    font-size: 9px;
+    letter-spacing: 0.4em;
     text-transform: uppercase;
     color: var(--ink-faint);
     white-space: nowrap;
+    opacity: 0.4;
   }
 }
 </style>
