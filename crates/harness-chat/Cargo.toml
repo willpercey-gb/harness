@@ -9,6 +9,7 @@ harness-storage.workspace = true
 strands-core.workspace = true
 strands-ollama.workspace = true
 strands-openrouter.workspace = true
+harness-tools.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true

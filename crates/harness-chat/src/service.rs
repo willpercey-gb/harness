@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent_registry::{AgentConfig, Provider};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
+use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
 
 const SLIDING_WINDOW: usize = 20;
 const COALESCE_INTERVAL: Duration = Duration::from_millis(16);
@@ -107,17 +108,33 @@ pub async fn run_chat(
     }
     let prompt_for_agent = prompt.clone();
 
-    // Build the agent for this turn.
+    // Build the agent for this turn, with tools constructed from
+    // current Settings so allowlist / sandbox-root changes take effect
+    // on the next message without a restart.
     let (tx, rx) = mpsc::unbounded_channel::<CoreStream>();
+
+    fn with_tools(
+        b: strands_core::AgentBuilder,
+        settings: &Settings,
+    ) -> strands_core::AgentBuilder {
+        b.tool(GetTime)
+            .tool(Calculator)
+            .tool(HttpFetch::new(settings.http_fetch_allowlist.clone()))
+            .tool(ReadFile::new(settings.read_file_sandbox_root.clone()))
+    }
+
     let builder_result = match agent.provider {
         Provider::Ollama => {
             let model = OllamaModel::new(agent.model_id.clone())
                 .with_host(settings.ollama_host.clone());
-            Agent::builder()
-                .model(model)
-                .callback_handler(CallbackBridge { tx })
-                .max_cycles(20)
-                .build()
+            with_tools(
+                Agent::builder()
+                    .model(model)
+                    .callback_handler(CallbackBridge { tx })
+                    .max_cycles(20),
+                &settings,
+            )
+            .build()
         }
         Provider::OpenRouter => {
             let key = match settings.openrouter_api_key.clone() {
@@ -134,11 +151,14 @@ pub async fn run_chat(
             if let Some(t) = settings.openrouter_app_title.clone() {
                 model = model.with_app_title(t);
             }
-            Agent::builder()
-                .model(model)
-                .callback_handler(CallbackBridge { tx })
-                .max_cycles(20)
-                .build()
+            with_tools(
+                Agent::builder()
+                    .model(model)
+                    .callback_handler(CallbackBridge { tx })
+                    .max_cycles(20),
+                &settings,
+            )
+            .build()
         }
         _ => {
             emit_err_done(
