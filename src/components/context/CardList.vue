@@ -2,12 +2,61 @@
 import { ref, watch } from 'vue'
 import type { ContextCard } from '@/types/context.types'
 
-const props = defineProps<{ label: string; cards: ContextCard[] }>()
+type Kind = 'priority' | 'aside'
+
+const props = defineProps<{ label: string; cards: ContextCard[]; kind: Kind }>()
 const emit = defineEmits<{
   (e: 'edit', id: string, text: string): void
   (e: 'add', text: string): void
   (e: 'delete', id: string): void
+  (e: 'move', fromKind: Kind, id: string, toKind: Kind): void
 }>()
+
+const dragOver = ref(false)
+const draggingId = ref<string | null>(null)
+
+function onDragStart(card: ContextCard, ev: DragEvent) {
+  if (!ev.dataTransfer) return
+  ev.dataTransfer.effectAllowed = 'move'
+  ev.dataTransfer.setData(
+    'application/x-harness-card',
+    JSON.stringify({ kind: props.kind, id: card.id }),
+  )
+  draggingId.value = card.id
+}
+
+function onDragEnd() {
+  draggingId.value = null
+}
+
+function onDragOver(ev: DragEvent) {
+  // Only accept drops carrying our payload type.
+  const types = ev.dataTransfer?.types
+  if (!types || !Array.from(types).includes('application/x-harness-card')) return
+  ev.preventDefault()
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+  dragOver.value = true
+}
+
+function onDragLeave(ev: DragEvent) {
+  // Only clear when leaving the list itself, not a child.
+  if (ev.currentTarget === ev.target) dragOver.value = false
+}
+
+function onDrop(ev: DragEvent) {
+  ev.preventDefault()
+  dragOver.value = false
+  const raw = ev.dataTransfer?.getData('application/x-harness-card')
+  if (!raw) return
+  try {
+    const { kind, id } = JSON.parse(raw) as { kind: Kind; id: string }
+    if (kind !== props.kind) {
+      emit('move', kind, id, props.kind)
+    }
+  } catch {
+    /* ignore malformed payload */
+  }
+}
 
 const editingId = ref<string | null>(null)
 const draft = ref('')
@@ -62,12 +111,25 @@ function cancelAdd() {
       </button>
     </header>
 
-    <div class="rows">
+    <div
+      class="rows"
+      :class="{ 'drop-target': dragOver }"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
       <div
         v-for="card in cards"
         :key="card.id"
         class="card"
-        :class="{ edited: card.edited_by_user, editing: editingId === card.id }"
+        :class="{
+          edited: card.edited_by_user,
+          editing: editingId === card.id,
+          dragging: draggingId === card.id,
+        }"
+        :draggable="editingId !== card.id"
+        @dragstart="onDragStart(card, $event)"
+        @dragend="onDragEnd"
       >
         <template v-if="editingId === card.id">
           <textarea
@@ -149,6 +211,16 @@ function cancelAdd() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 40px;
+  padding: 4px;
+  margin: -4px;
+  border-radius: var(--radius-md, 4px);
+  border: 1px dashed transparent;
+  transition: border-color 0.12s, background 0.12s;
+  &.drop-target {
+    border-color: var(--accent);
+    background: var(--accent-soft, rgba(217, 119, 6, 0.05));
+  }
 }
 .card {
   background: var(--bg);
@@ -161,8 +233,11 @@ function cancelAdd() {
   gap: 6px;
   font-size: 12.5px;
   line-height: 1.45;
+  cursor: grab;
+  &:active { cursor: grabbing; }
+  &.dragging { opacity: 0.4; }
   &.edited { border-left: 2px solid var(--accent); }
-  &.editing { display: block; }
+  &.editing { display: block; cursor: default; }
   .text {
     margin: 0;
     flex: 1;

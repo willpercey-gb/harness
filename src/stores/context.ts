@@ -155,5 +155,25 @@ export const useContextStore = defineStore('context', {
       this.context.asides = this.context.asides.filter((a) => a.id !== id)
       this.persist()
     },
+
+    /** Reclassify a card by moving it from one bucket to the other.
+     *  Marks the card as edited so the next refresh preserves it. */
+    moveCard(fromKind: 'priority' | 'aside', id: string, toKind: 'priority' | 'aside') {
+      if (fromKind === toKind) return
+      if (fromKind === 'priority') {
+        const idx = this.context.priorities.findIndex((p) => p.id === id)
+        if (idx === -1) return
+        const [card] = this.context.priorities.splice(idx, 1)
+        card.edited_by_user = true
+        this.context.asides.push(card)
+      } else {
+        const idx = this.context.asides.findIndex((a) => a.id === id)
+        if (idx === -1) return
+        const [card] = this.context.asides.splice(idx, 1)
+        card.edited_by_user = true
+        this.context.priorities.push(card)
+      }
+      this.persist()
+    },
   },
 })

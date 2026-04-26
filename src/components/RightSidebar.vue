@@ -44,18 +44,22 @@ const hasSession = computed(() => !!chat.currentSessionId)
 
         <CardList
           label="Priorities"
+          kind="priority"
           :cards="ctx.context.priorities"
           @add="ctx.addPriority"
           @edit="ctx.editPriority"
           @delete="ctx.deletePriority"
+          @move="ctx.moveCard"
         />
 
         <CardList
           label="Asides"
+          kind="aside"
           :cards="ctx.context.asides"
           @add="ctx.addAside"
           @edit="ctx.editAside"
           @delete="ctx.deleteAside"
+          @move="ctx.moveCard"
         />
 
         <p v-if="ctx.saveError" class="error">{{ ctx.saveError }}</p>
