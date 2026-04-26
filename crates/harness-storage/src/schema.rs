@@ -17,4 +17,6 @@ DEFINE FIELD IF NOT EXISTS content        ON chat_message TYPE string;
 DEFINE FIELD IF NOT EXISTS content_blocks ON chat_message TYPE array DEFAULT [];
 DEFINE FIELD IF NOT EXISTS created_at     ON chat_message TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_session_time ON chat_message FIELDS session, created_at;
+
+DEFINE TABLE IF NOT EXISTS settings SCHEMALESS;
 "#;

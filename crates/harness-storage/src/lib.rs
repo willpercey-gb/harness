@@ -6,11 +6,13 @@ pub mod memory;
 pub mod messages;
 pub mod schema;
 pub mod sessions;
+pub mod settings;
 
 pub use db::{default_db_path, init_db, init_in_memory, HarnessDb};
 pub use error::{Result, StorageError};
 pub use messages::ChatMessage;
 pub use sessions::{ChatSession, SessionSummary};
+pub use settings::Settings;
 
 #[cfg(test)]
 mod tests {
@@ -80,6 +82,41 @@ mod tests {
         let after = sessions::get(&db, &id).await.unwrap();
         assert_eq!(after.message_count, 7);
         assert!(after.last_msg_at >= s.last_msg_at);
+    }
+
+    #[tokio::test]
+    async fn settings_default_when_missing() {
+        let db = fresh().await;
+        let s = settings::load(&db).await.unwrap();
+        assert!(!s.openrouter_enabled());
+        assert_eq!(s.ollama_host, "http://localhost:11434");
+        assert!(s.http_fetch_allowlist.is_empty());
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip() {
+        let db = fresh().await;
+        let mut s = Settings::default();
+        s.openrouter_api_key = Some("sk-test".into());
+        s.http_fetch_allowlist = vec!["example.com".into(), "api.github.com".into()];
+        settings::save(&db, &s).await.unwrap();
+        let loaded = settings::load(&db).await.unwrap();
+        assert_eq!(loaded.openrouter_api_key.as_deref(), Some("sk-test"));
+        assert!(loaded.openrouter_enabled());
+        assert!(loaded.http_fetch_allows("EXAMPLE.com"));
+        assert!(!loaded.http_fetch_allows("evil.com"));
+    }
+
+    #[tokio::test]
+    async fn settings_save_overwrites() {
+        let db = fresh().await;
+        let mut s = Settings::default();
+        s.openrouter_api_key = Some("first".into());
+        settings::save(&db, &s).await.unwrap();
+        s.openrouter_api_key = Some("second".into());
+        settings::save(&db, &s).await.unwrap();
+        let loaded = settings::load(&db).await.unwrap();
+        assert_eq!(loaded.openrouter_api_key.as_deref(), Some("second"));
     }
 
     #[tokio::test]
