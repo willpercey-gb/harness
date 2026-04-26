@@ -37,9 +37,15 @@ function open(session: ChatSession) {
   chat.openSession(session)
 }
 
-async function remove(session: ChatSession, ev: Event) {
-  ev.stopPropagation()
-  await deleteSession(session.sessionId)
+async function remove(session: ChatSession) {
+  try {
+    await deleteSession(session.sessionId)
+  } catch (e) {
+    // Surface the error so a future UI hook can show it; for now just
+    // log so the user sees something in the dev console.
+    console.error('delete session failed', e)
+    return
+  }
   if (chat.currentSessionId === session.sessionId) chat.newChat()
   reload()
 }
@@ -85,7 +91,7 @@ function relativeDate(s: string): string {
         <span
           class="delete material-symbols-outlined"
           title="Delete"
-          @click="remove(s, $event)"
+          @click.stop.prevent="remove(s)"
         >close</span>
       </button>
     </nav>
