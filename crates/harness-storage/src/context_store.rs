@@ -72,7 +72,7 @@ struct ContextRow {
     #[serde(default)]
     context_updated_at: Option<DateTime<Utc>>,
     #[serde(default)]
-    context_turns_since_refresh: u32,
+    context_turns_since_refresh: Option<u32>,
 }
 
 pub async fn load(db: &HarnessDb, session_id: &str) -> Result<ConversationContext> {
@@ -91,7 +91,7 @@ pub async fn load(db: &HarnessDb, session_id: &str) -> Result<ConversationContex
         priorities: row.context_priorities.unwrap_or_default(),
         asides: row.context_asides.unwrap_or_default(),
         updated_at: row.context_updated_at,
-        turns_since_refresh: row.context_turns_since_refresh,
+        turns_since_refresh: row.context_turns_since_refresh.unwrap_or(0),
     })
 }
 

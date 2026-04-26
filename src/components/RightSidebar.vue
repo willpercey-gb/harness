@@ -100,7 +100,7 @@ const hasSession = computed(() => !!chat.currentSessionId)
   .material-symbols-outlined { font-size: 18px; }
 }
 .content {
-  padding: calc(var(--titlebar-h, 32px) + 24px) 18px 18px;
+  padding: calc(var(--titlebar-h, 32px) + 52px) 18px 18px;
   display: flex;
   flex-direction: column;
   gap: 18px;

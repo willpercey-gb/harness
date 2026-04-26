@@ -29,7 +29,7 @@ DEFINE FIELD OVERWRITE context_anchor               ON chat_session TYPE option<
 DEFINE FIELD OVERWRITE context_priorities           ON chat_session FLEXIBLE TYPE option<array> DEFAULT [];
 DEFINE FIELD OVERWRITE context_asides               ON chat_session FLEXIBLE TYPE option<array> DEFAULT [];
 DEFINE FIELD OVERWRITE context_updated_at           ON chat_session TYPE option<datetime>;
-DEFINE FIELD OVERWRITE context_turns_since_refresh  ON chat_session TYPE int DEFAULT 0;
+DEFINE FIELD OVERWRITE context_turns_since_refresh  ON chat_session TYPE option<int> DEFAULT 0;
 
 DEFINE TABLE IF NOT EXISTS settings SCHEMALESS;
 "#;
