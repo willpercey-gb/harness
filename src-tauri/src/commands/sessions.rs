@@ -38,15 +38,20 @@ pub struct SessionsPageMeta {
 
 #[tauri::command]
 pub async fn list_sessions(
-    agent: String,
+    // `agent` is accepted for backwards compatibility with the
+    // frontend's existing call signature but is now ignored — sessions
+    // are no longer scoped to a single agent. Kept rather than broken
+    // so older builds keep working.
+    agent: Option<String>,
     limit: u32,
     offset: u32,
     state: State<'_, AppState>,
 ) -> Result<SessionsPage, String> {
-    let summaries = sessions::list_for_agent(&state.db, &agent, limit, offset)
+    let _ = agent;
+    let summaries = sessions::list_all(&state.db, limit, offset)
         .await
         .map_err(|e| e.to_string())?;
-    let total = sessions::count_for_agent(&state.db, &agent)
+    let total = sessions::count_all(&state.db)
         .await
         .map_err(|e| e.to_string())?;
     let returned = summaries.len() as i64;
@@ -111,7 +116,7 @@ pub async fn get_history(
             role: m.role,
             content: m.content,
             created_at: m.created_at,
-            agent_id: None,
+            agent_id: m.agent_id,
         })
         .collect();
     Ok(HistoryPage {

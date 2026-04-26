@@ -64,6 +64,42 @@ pub async fn get(db: &HarnessDb, session_id: &str) -> Result<ChatSession> {
     s.ok_or(StorageError::NotFound)
 }
 
+/// All non-deleted sessions, newest-first.
+///
+/// Sessions are no longer scoped to a single agent — switching agents
+/// mid-conversation is supported, so the picker shows everything.
+pub async fn list_all(
+    db: &HarnessDb,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<SessionSummary>> {
+    let mut res = db
+        .query(
+            "SELECT * FROM chat_session WHERE deleted_at IS NONE \
+             ORDER BY last_msg_at DESC LIMIT $limit START $offset",
+        )
+        .bind(("limit", limit as i64))
+        .bind(("offset", offset as i64))
+        .await?;
+    let rows: Vec<ChatSession> = res.take(0)?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
+pub async fn count_all(db: &HarnessDb) -> Result<i64> {
+    let mut res = db
+        .query(
+            "SELECT count() AS c FROM chat_session \
+             WHERE deleted_at IS NONE GROUP ALL",
+        )
+        .await?;
+    #[derive(Deserialize)]
+    struct Row {
+        c: i64,
+    }
+    let rows: Vec<Row> = res.take(0)?;
+    Ok(rows.into_iter().next().map(|r| r.c).unwrap_or(0))
+}
+
 pub async fn list_for_agent(
     db: &HarnessDb,
     agent_id: &str,

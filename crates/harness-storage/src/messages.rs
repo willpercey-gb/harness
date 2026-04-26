@@ -13,6 +13,11 @@ pub struct ChatMessage {
     pub content: String,
     #[serde(default)]
     pub content_blocks: Vec<serde_json::Value>,
+    /// The harness agent id that produced this turn. None for legacy
+    /// rows. Lets the UI badge each message with which model
+    /// answered it after switching providers mid-session.
+    #[serde(default)]
+    pub agent_id: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -22,6 +27,7 @@ struct NewMessage {
     role: String,
     content: String,
     content_blocks: Vec<serde_json::Value>,
+    agent_id: Option<String>,
 }
 
 pub async fn append(
@@ -30,6 +36,7 @@ pub async fn append(
     role: &str,
     content: &str,
     content_blocks: Vec<serde_json::Value>,
+    agent_id: Option<&str>,
 ) -> Result<ChatMessage> {
     let session_thing = Thing::from(("chat_session", session_id));
     let created: Option<ChatMessage> = db
@@ -39,6 +46,7 @@ pub async fn append(
             role: role.to_string(),
             content: content.to_string(),
             content_blocks,
+            agent_id: agent_id.map(|s| s.to_string()),
         })
         .await?;
     created.ok_or_else(|| crate::error::StorageError::Db("append returned empty".into()))

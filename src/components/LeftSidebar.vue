@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSessions, deleteSession } from '@/services/chat'
 import { useChatStore } from '@/stores/chat'
@@ -15,16 +15,12 @@ const chat = useChatStore()
 const sessions = ref<ChatSession[]>([])
 const loading = ref(false)
 
-const filterAgentId = computed(() => chat.selectedAgentId)
-
 async function reload() {
-  if (!filterAgentId.value) {
-    sessions.value = []
-    return
-  }
   loading.value = true
   try {
-    const res = await getSessions(filterAgentId.value, 100, 0)
+    // Sessions span all agents now; pass empty string for the legacy
+    // `agent` arg the backend still accepts.
+    const res = await getSessions('', 100, 0)
     sessions.value = res.data
   } catch {
     sessions.value = []
@@ -34,7 +30,6 @@ async function reload() {
 }
 
 onMounted(reload)
-watch(filterAgentId, reload)
 watch(() => chat.sessionsBumper, reload)
 
 function open(session: ChatSession) {
@@ -76,7 +71,6 @@ function relativeDate(s: string): string {
 
     <nav class="sessions">
       <div v-if="loading" class="empty">Loading…</div>
-      <div v-else-if="!filterAgentId" class="empty">Pick an agent to begin.</div>
       <div v-else-if="sessions.length === 0" class="empty">No conversations yet.</div>
 
       <button

@@ -44,7 +44,7 @@ mod tests {
         let id = s.id.id.to_string();
 
         for i in 0..5 {
-            messages::append(&db, &id, "user", &format!("msg {i}"), vec![])
+            messages::append(&db, &id, "user", &format!("msg {i}"), vec![], None)
                 .await
                 .unwrap();
         }
@@ -198,7 +198,7 @@ mod tests {
         let s = sessions::create(&db, "t", "ollama:x").await.unwrap();
         let id = s.id.id.to_string();
         for i in 0..10 {
-            messages::append(&db, &id, "user", &format!("m{i}"), vec![])
+            messages::append(&db, &id, "user", &format!("m{i}"), vec![], None)
                 .await
                 .unwrap();
         }

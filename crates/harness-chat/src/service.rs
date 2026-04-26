@@ -144,7 +144,9 @@ pub async fn run_chat(
         },
     };
 
-    if let Err(e) = messages::append(&db, &session_id, "user", &prompt, vec![]).await {
+    if let Err(e) =
+        messages::append(&db, &session_id, "user", &prompt, vec![], Some(&agent.id)).await
+    {
         emit_err_done(&emit, format!("save user message: {e}"));
         return ChatRunOutcome { session_id };
     }
@@ -549,8 +551,15 @@ pub async fn run_chat(
     }
 
     if !full_assistant.is_empty() {
-        if let Err(e) =
-            messages::append(&db, &session_id, "assistant", &full_assistant, vec![]).await
+        if let Err(e) = messages::append(
+            &db,
+            &session_id,
+            "assistant",
+            &full_assistant,
+            vec![],
+            Some(&agent.id),
+        )
+        .await
         {
             tracing::warn!("save assistant message: {e}");
         }

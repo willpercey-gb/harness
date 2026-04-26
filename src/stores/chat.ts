@@ -16,8 +16,9 @@ export const useChatStore = defineStore('chat', {
     selectAgent(agent: Agent) {
       this.selectedAgent = agent
       this.selectedAgentId = agent.id
-      this.currentSessionId = null
-      this.historyBumper++
+      // Sessions are no longer scoped to an agent — keep the active
+      // session intact so the user can switch models mid-conversation
+      // and pick up where they left off.
     },
     openSession(s: ChatSession) {
       this.currentSessionId = s.sessionId
