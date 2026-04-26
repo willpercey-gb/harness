@@ -30,3 +30,4 @@ harness-tools.workspace = true
 strands-core.workspace = true
 strands-ollama.workspace = true
 dirs.workspace = true
+surrealdb.workspace = true

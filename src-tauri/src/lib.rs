@@ -33,6 +33,11 @@ pub fn run() {
             commands::settings::settings_set,
             commands::context::get_context,
             commands::context::update_context,
+            commands::knowledge::get_full_graph,
+            commands::knowledge::get_entity_graph,
+            commands::knowledge::get_recent_memories,
+            commands::knowledge::query_knowledge,
+            commands::knowledge::get_knowledge_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

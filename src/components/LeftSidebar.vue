@@ -109,9 +109,12 @@ function relativeDate(s: string): string {
     </nav>
 
     <footer class="bottom">
+      <RouterLink to="/knowledge" class="footer-btn" :class="{ active: route.path === '/knowledge' }" title="Knowledge graph + memories">
+        <span class="material-symbols-outlined">hub</span>
+        <span>Knowledge</span>
+      </RouterLink>
       <RouterLink to="/settings" class="footer-btn" :class="{ active: route.path === '/settings' }" title="Settings">
         <span class="material-symbols-outlined">settings</span>
-        <span>Settings</span>
       </RouterLink>
       <button class="footer-btn icon-only" :title="darkMode ? 'Light mode' : 'Dark mode'" @click="$emit('toggle-dark')">
         <span class="material-symbols-outlined">{{ darkMode ? 'light_mode' : 'dark_mode' }}</span>

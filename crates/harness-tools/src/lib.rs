@@ -15,6 +15,12 @@ pub use builtins::{
 };
 pub use memex_core::{EmbeddingService, MemexDb};
 
+/// Re-exports of memex-core's functional modules so the binary crate
+/// can issue knowledge queries without a direct memex-core dep.
+pub mod memex_api {
+    pub use memex_core::{entities, memories, query, relationships, types};
+}
+
 use std::path::Path;
 
 /// Open (or create) the harness-owned Memex database at `path`.

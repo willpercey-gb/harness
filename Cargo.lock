@@ -2694,6 +2694,7 @@ dependencies = [
  "serde_json",
  "strands-core",
  "strands-ollama",
+ "surrealdb",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
