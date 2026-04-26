@@ -1,16 +1,11 @@
 [package]
 name = "harness"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Harness — local agent chat playground"
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "harness_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -20,6 +15,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+harness-storage.workspace = true
+harness-chat.workspace = true
+strands-core.workspace = true
+strands-ollama.workspace = true
