@@ -131,6 +131,50 @@ fn provider_label(p: Provider) -> &'static str {
     }
 }
 
+/// Try to locate the `claude` binary the user has installed. Tauri-
+/// bundled apps don't inherit the shell's PATH, so we have to look in
+/// well-known locations + fall back to a login-shell probe.
+///
+/// Returns the first absolute path that exists. `None` if not found —
+/// the ChatService will then return a friendly "is the Claude CLI
+/// installed?" error from the spawn attempt.
+pub fn find_claude_cli() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".local/bin/claude"));
+        candidates.push(home.join(".claude/local/claude"));
+        candidates.push(home.join("bin/claude"));
+    }
+    candidates.push(PathBuf::from("/usr/local/bin/claude"));
+    candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
+
+    for c in &candidates {
+        if c.exists() {
+            return Some(c.clone());
+        }
+    }
+
+    // Last resort: ask a login shell. Picks up nvm / volta / asdf etc.
+    if let Ok(output) = std::process::Command::new("/bin/bash")
+        .args(["-lc", "command -v claude"])
+        .output()
+    {
+        if output.status.success() {
+            let raw = String::from_utf8_lossy(&output.stdout);
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let p = PathBuf::from(trimmed);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Curated agents backed by the local `claude -p` CLI. Always enabled
 /// when the binary is available — discovery is a cheap probe that
 /// caches across calls.

@@ -71,9 +71,12 @@ fn build_model(
         }
         Provider::ClaudeCli => {
             let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            let m = ClaudeCliModel::new(agent.model_id.clone())
+            let mut m = ClaudeCliModel::new(agent.model_id.clone())
                 .with_cwd(cwd)
                 .with_dangerously_skip_permissions(true);
+            if let Some(path) = &settings.claude_cli_path {
+                m = m.with_command(path.to_string_lossy().to_string());
+            }
             Ok(Arc::new(m))
         }
         other => Err(format!("provider {other:?} not yet supported")),
@@ -335,14 +338,23 @@ pub async fn run_chat(
             // CLI doesn't block waiting for permission prompts that
             // can't be answered through harness's Tauri UI.
             let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            let primary = ClaudeCliModel::new(agent.model_id.clone())
+            let cli_path = settings
+                .claude_cli_path
+                .clone()
+                .map(|p| p.to_string_lossy().to_string());
+            let mut primary = ClaudeCliModel::new(agent.model_id.clone())
                 .with_cwd(cwd.clone())
                 .with_dangerously_skip_permissions(true);
-            let summary_model: Arc<dyn Model> = Arc::new(
-                ClaudeCliModel::new(agent.model_id.clone())
-                    .with_cwd(cwd)
-                    .with_dangerously_skip_permissions(true),
-            );
+            if let Some(cmd) = &cli_path {
+                primary = primary.with_command(cmd.clone());
+            }
+            let mut summary_built = ClaudeCliModel::new(agent.model_id.clone())
+                .with_cwd(cwd)
+                .with_dangerously_skip_permissions(true);
+            if let Some(cmd) = &cli_path {
+                summary_built = summary_built.with_command(cmd.clone());
+            }
+            let summary_model: Arc<dyn Model> = Arc::new(summary_built);
             with_tools(
                 Agent::builder()
                     .model(primary)

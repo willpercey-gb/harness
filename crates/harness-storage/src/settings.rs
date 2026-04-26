@@ -28,6 +28,12 @@ pub struct Settings {
     pub http_fetch_allowlist: Vec<String>,
     #[serde(default)]
     pub read_file_sandbox_root: Option<PathBuf>,
+    /// Absolute path to the `claude` binary. When `None`, AppState
+    /// runs a startup discovery pass over common install locations
+    /// and a login-shell `command -v` fallback. Overridable via
+    /// Settings UI in a future phase.
+    #[serde(default)]
+    pub claude_cli_path: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -40,6 +46,7 @@ impl Default for Settings {
             default_agent_id: None,
             http_fetch_allowlist: Vec::new(),
             read_file_sandbox_root: None,
+            claude_cli_path: None,
         }
     }
 }
