@@ -4,6 +4,7 @@ members = [
     "src-tauri",
     "crates/harness-storage",
     "crates/harness-chat",
+    "crates/harness-tools",
 ]
 
 [workspace.package]
@@ -38,3 +39,4 @@ strands-openrouter = { path = "../strands-rs/strands-openrouter" }
 # internal crates
 harness-storage = { path = "crates/harness-storage" }
 harness-chat = { path = "crates/harness-chat" }
+harness-tools = { path = "crates/harness-tools" }
