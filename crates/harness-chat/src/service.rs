@@ -87,6 +87,9 @@ pub async fn run_chat(
     }
 
     // Conversation history (sliding window, oldest-first) + new prompt.
+    // Sliding window includes the user message we just persisted.
+    // Drop the tail (it'll be re-appended by Agent::prompt) so we
+    // don't double-send the latest user turn.
     let history =
         match harness_storage::memory::sliding_window(&db, &session_id, SLIDING_WINDOW).await {
             Ok(h) => h,
@@ -104,8 +107,11 @@ pub async fn run_chat(
             _ => Message::user(m.content.clone()),
         })
         .collect();
-    if !conv.last().is_some_and(|m| m.text() == prompt) {
-        conv.push(Message::user(prompt.clone()));
+    if matches!(
+        conv.last(),
+        Some(m) if matches!(m.role, strands_core::types::message::Role::User) && m.text() == prompt
+    ) {
+        conv.pop();
     }
     let prompt_for_agent = prompt.clone();
 
@@ -196,25 +202,10 @@ pub async fn run_chat(
     let cancel_handle = agent_inst.cancel_handle();
     let _ = builder_result; // keep the moved-out variable name out of warnings
 
-    // Seed the agent with the prior conversation by re-using its
-    // public `messages` slot before prompt.
-    {
-        // SAFETY: Agent doesn't expose a setter; the simplest path is to
-        // call agent_inst.prompt(prompt) and rely on its internal append
-        // for the *new* message, plus pre-pushing prior history via the
-        // public `clear_messages` + manual builder. Since Agent doesn't
-        // currently expose a push API, we instead rely on the agent
-        // building its own history within a session — but harness owns
-        // history, so for now we drop strands-side history and provide
-        // only the new prompt. The conv vector above is still useful for
-        // future sessionless stateless calls; for now we leave it built.
-        //
-        // The harness-storage sliding window remains the source of truth;
-        // future iterations can teach strands-core to accept seed
-        // messages explicitly.
-        let _ = &conv; // suppress unused warning
-        agent_inst.clear_messages();
-    }
+    // Seed the agent with prior history from harness-storage before
+    // prompting. Agent::prompt will append the new user turn on top of
+    // these seed messages.
+    agent_inst.set_messages(conv);
 
     // Spawn the agent on its own task so we can race cancel + tick
     // against the prompt completion future.
