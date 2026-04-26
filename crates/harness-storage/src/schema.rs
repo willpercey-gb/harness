@@ -19,10 +19,11 @@ DEFINE FIELD IF NOT EXISTS created_at     ON chat_message TYPE datetime DEFAULT 
 DEFINE INDEX IF NOT EXISTS idx_session_time ON chat_message FIELDS session, created_at;
 
 -- Multi-agent context window: per-session anchor/priorities/asides cards.
-DEFINE FIELD IF NOT EXISTS context_anchor      ON chat_session TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS context_priorities  ON chat_session FLEXIBLE TYPE array DEFAULT [];
-DEFINE FIELD IF NOT EXISTS context_asides      ON chat_session FLEXIBLE TYPE array DEFAULT [];
-DEFINE FIELD IF NOT EXISTS context_updated_at  ON chat_session TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS context_anchor               ON chat_session TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS context_priorities           ON chat_session FLEXIBLE TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS context_asides               ON chat_session FLEXIBLE TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS context_updated_at           ON chat_session TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS context_turns_since_refresh  ON chat_session TYPE int DEFAULT 0;
 
 DEFINE TABLE IF NOT EXISTS settings SCHEMALESS;
 "#;

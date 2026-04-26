@@ -205,7 +205,7 @@ mod tests {
                 ContextCard::edited("budget under £500"),
             ],
             asides: vec![ContextCard::new("note: GMT+0")],
-            updated_at: None,
+            ..Default::default()
         };
         let s = xml_envelope(&ctx, Some((Intent::Expand, IntentSource::Auto)));
         assert!(s.contains("<anchor>plan a 4-day Lisbon trip</anchor>"));
@@ -220,7 +220,7 @@ mod tests {
             anchor: Some("ship harness".into()),
             priorities: vec![ContextCard::new("ollama support"), ContextCard::edited("low latency")],
             asides: vec![ContextCard::new("dark mode default")],
-            updated_at: None,
+            ..Default::default()
         };
         let s = xml_envelope(&ctx, None);
         let parsed = parse_envelope(&s);

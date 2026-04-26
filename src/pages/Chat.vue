@@ -342,39 +342,41 @@ export default defineComponent({
       <div class="composer" :class="{ disabled: !chat.selectedAgent }">
         <textarea
           v-model="currentMessage"
-          rows="1"
+          rows="4"
           :placeholder="chat.selectedAgent ? `Message ${chat.selectedAgent.attributes.name}…` : 'Pick an agent below to begin.'"
           :disabled="streaming || !chat.selectedAgent"
           @keydown="handleKeydown"
           ref="composer"
           class="composer-input"
         ></textarea>
-        <div class="composer-actions">
-          <button
-            v-if="streaming"
-            class="action stop"
-            @click="cancel"
-            title="Stop generating"
-          >
-            <span class="material-symbols-outlined">stop</span>
-          </button>
-          <button
-            v-else
-            class="action send"
-            :disabled="!currentMessage.trim() || !chat.selectedAgent"
-            @click="sendMessage"
-            title="Send"
-          >
-            <span class="material-symbols-outlined">arrow_upward</span>
-          </button>
+        <div class="composer-bar">
+          <div class="composer-bar-left">
+            <AgentSelector compact />
+            <IntentDropdown v-model:value="intentOverride" compact />
+          </div>
+          <div class="composer-actions">
+            <button
+              v-if="streaming"
+              class="action stop"
+              @click="cancel"
+              title="Stop generating"
+            >
+              <span class="material-symbols-outlined">stop</span>
+            </button>
+            <button
+              v-else
+              class="action send"
+              :disabled="!currentMessage.trim() || !chat.selectedAgent"
+              @click="sendMessage"
+              title="Send"
+            >
+              <span class="material-symbols-outlined">arrow_upward</span>
+            </button>
+          </div>
         </div>
       </div>
-      <div class="composer-foot">
-        <AgentSelector />
-        <IntentDropdown v-model:value="intentOverride" />
-        <span v-if="chat.currentSessionId" class="session-tag">
-          session · {{ chat.currentSessionId.slice(0, 8) }}
-        </span>
+      <div v-if="chat.currentSessionId" class="session-tag">
+        session · {{ chat.currentSessionId.slice(0, 8) }}
       </div>
     </footer>
   </div>
@@ -641,29 +643,37 @@ export default defineComponent({
 .composer {
   max-width: 760px;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-soft);
   border: 1px solid var(--rule);
   border-radius: var(--radius-xl);
-  padding: 10px 10px 10px 16px;
+  padding: 12px 14px 8px;
   transition: border-color 0.12s;
   &:focus-within { border-color: var(--rule-strong); }
   &.disabled { opacity: 0.7; }
 }
-.composer-foot {
-  max-width: 760px;
-  margin: 8px auto 0;
+.composer-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 6px;
+}
+.composer-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
 }
 .session-tag {
+  display: block;
+  max-width: 760px;
+  margin: 6px auto 0;
   font-size: 11px;
   color: var(--ink-faint);
+  text-align: right;
 }
 .composer-input {
   border: 0;
@@ -674,14 +684,14 @@ export default defineComponent({
   line-height: 1.55;
   color: var(--ink);
   resize: none;
-  padding: 6px 0 4px;
-  min-height: 24px;
-  max-height: 220px;
+  padding: 0;
+  min-height: 84px;
+  max-height: 320px;
   width: 100%;
   &::placeholder { color: var(--ink-faint); }
   &:disabled { cursor: not-allowed; }
 }
-.composer-actions { display: flex; align-items: center; gap: 6px; }
+.composer-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .action {
   width: 32px;
   height: 32px;

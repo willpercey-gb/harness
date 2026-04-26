@@ -1,10 +1,9 @@
 //! Chat orchestration: agent registry, streaming pipeline, cancellation.
 
 pub mod agent_registry;
-pub mod anchor_agent;
 pub mod cancel;
 pub mod context;
-pub mod intent_agent;
+pub mod context_agent;
 pub mod pipeline;
 pub mod service;
 

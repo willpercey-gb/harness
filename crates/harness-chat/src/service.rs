@@ -16,9 +16,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_registry::{AgentConfig, Provider};
-use crate::anchor_agent::{self, AnchorRequest};
 use crate::context::{xml_envelope, Intent, IntentSource};
-use crate::intent_agent::{self, IntentRequest};
+use crate::context_agent::{self, ContextRequest};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
 use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
 
@@ -26,6 +25,11 @@ use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
 /// agent. Beyond ~`SUMMARIZE_TRIGGER`, the strands
 /// `SummarizingConversationManager` collapses older turns into a
 /// summary message; below that, the agent simply sees them verbatim.
+/// Refresh the context cards (and re-classify intent) after this many
+/// consecutive non-refresh turns. The drift check exists because most
+/// turns are `expand` and don't shift the goal — re-running the
+/// context agent every turn is wasted spend.
+const DRIFT_INTERVAL: u32 = 5;
 const HISTORY_LOAD: usize = 200;
 /// Total message count that triggers summarization on the agent side.
 const SUMMARIZE_TRIGGER: usize = 40;
@@ -174,69 +178,97 @@ pub async fn run_chat(
     }
     let prompt_for_agent = prompt.clone();
 
-    // ---- Stage 1 + 2: anchor agent + intent classifier ----
-    let mut conv_context = context_store::load(&db, &session_id)
+    // ---- Lazy context refresh + intent ----
+    //
+    // The combined context_agent emits both the refreshed cards AND
+    // the intent classification in a single model call. We only run
+    // it when:
+    //   - this session has no prior context yet, OR
+    //   - the user picked Redirect from the composer dropdown, OR
+    //   - DRIFT_INTERVAL turns have passed since the last refresh.
+    //
+    // Steady-state turns reuse the existing cards and default the
+    // intent to whatever the override is (or Expand). One model call
+    // per turn instead of three.
+    let prior_context = context_store::load(&db, &session_id)
         .await
         .unwrap_or_default();
 
-    emit(StreamEvent::ContextStarted);
+    let needs_refresh = prior_context.is_empty()
+        || matches!(intent_override, Some(Intent::Redirect))
+        || prior_context.turns_since_refresh >= DRIFT_INTERVAL;
 
-    if let Ok(small_model) = build_model(&agent, &settings) {
-        let anchor_req = AnchorRequest {
-            model: small_model.clone(),
-            prior: &conv_context,
-            history: &history,
-            user_prompt: &prompt,
-            cancel: cancel.clone(),
-        };
-        conv_context = anchor_agent::extract_or_refine(anchor_req).await;
-        if let Err(e) = context_store::save(&db, &session_id, &conv_context).await {
-            tracing::warn!("save context: {e}");
-        }
-    } else {
-        tracing::warn!("anchor agent skipped: model unavailable for {:?}", agent.provider);
-    }
-
-    if cancel.is_cancelled() {
-        emit(StreamEvent::Cancelled);
-        return ChatRunOutcome { session_id };
-    }
-
-    if let Some(anchor) = &conv_context.anchor {
-        emit(StreamEvent::ContextAnchor {
-            text: anchor.clone(),
-        });
-    }
-    for p in &conv_context.priorities {
-        emit(StreamEvent::ContextPriority {
-            id: p.id.clone(),
-            text: p.text.clone(),
-            edited_by_user: p.edited_by_user,
-        });
-    }
-    for a in &conv_context.asides {
-        emit(StreamEvent::ContextAside {
-            id: a.id.clone(),
-            text: a.text.clone(),
-            edited_by_user: a.edited_by_user,
-        });
-    }
-    emit(StreamEvent::ContextDone);
-
-    let (intent, intent_source) = match intent_override {
-        Some(i) => (i, IntentSource::Manual),
-        None => match build_model(&agent, &settings) {
-            Ok(small) => {
-                let req = IntentRequest {
-                    model: small,
-                    context: &conv_context,
+    let (mut conv_context, agent_intent) = if needs_refresh {
+        emit(StreamEvent::ContextStarted);
+        let outcome = match build_model(&agent, &settings) {
+            Ok(small_model) => {
+                let req = ContextRequest {
+                    model: small_model,
+                    prior: &prior_context,
+                    history: &history,
                     user_prompt: &prompt,
                     cancel: cancel.clone(),
                 };
-                (intent_agent::classify(req).await, IntentSource::Auto)
+                context_agent::refresh(req).await
             }
-            Err(_) => (Intent::Expand, IntentSource::Auto),
-        },
+            Err(e) => {
+                tracing::warn!("context agent skipped: {e}");
+                crate::context_agent::ContextOutcome {
+                    context: prior_context.clone(),
+                    intent: Intent::Expand,
+                }
+            }
+        };
+
+        if cancel.is_cancelled() {
+            emit(StreamEvent::Cancelled);
+            return ChatRunOutcome { session_id };
+        }
+
+        let mut new_ctx = outcome.context;
+        new_ctx.turns_since_refresh = 0;
+        if let Err(e) = context_store::save(&db, &session_id, &new_ctx).await {
+            tracing::warn!("save context: {e}");
+        }
+
+        if let Some(anchor) = &new_ctx.anchor {
+            emit(StreamEvent::ContextAnchor {
+                text: anchor.clone(),
+            });
+        }
+        for p in &new_ctx.priorities {
+            emit(StreamEvent::ContextPriority {
+                id: p.id.clone(),
+                text: p.text.clone(),
+                edited_by_user: p.edited_by_user,
+            });
+        }
+        for a in &new_ctx.asides {
+            emit(StreamEvent::ContextAside {
+                id: a.id.clone(),
+                text: a.text.clone(),
+                edited_by_user: a.edited_by_user,
+            });
+        }
+        emit(StreamEvent::ContextDone);
+
+        (new_ctx, Some(outcome.intent))
+    } else {
+        // Steady-state turn: bump the counter and reuse cards as-is.
+        let mut new_ctx = prior_context.clone();
+        new_ctx.turns_since_refresh = new_ctx.turns_since_refresh.saturating_add(1);
+        if let Err(e) = context_store::save(&db, &session_id, &new_ctx).await {
+            tracing::warn!("bump turns counter: {e}");
+        }
+        (new_ctx, None)
+    };
+
+    let (intent, intent_source) = match intent_override {
+        Some(i) => (i, IntentSource::Manual),
+        None => (
+            agent_intent.unwrap_or(Intent::Expand),
+            IntentSource::Auto,
+        ),
     };
     emit(StreamEvent::IntentClassified {
         intent: intent.as_str().to_string(),
@@ -246,6 +278,9 @@ pub async fn run_chat(
         },
     });
 
+    // The context counter increment write was the only mutation on
+    // steady-state turns; the conv_context value is otherwise reused.
+    let _ = &mut conv_context;
     let context_envelope = xml_envelope(&conv_context, Some((intent, intent_source)));
 
     // Build the agent for this turn, with tools constructed from

@@ -4,6 +4,8 @@ import { getAgents } from '@/services/chat'
 import { useChatStore } from '@/stores/chat'
 import type { Agent } from '@/types/chat.types'
 
+defineProps<{ compact?: boolean }>()
+
 const chat = useChatStore()
 const agents = ref<Agent[]>([])
 const loading = ref(false)
@@ -80,7 +82,7 @@ function costLabel(c: string) {
 </script>
 
 <template>
-  <div class="selector">
+  <div class="selector" :class="{ compact }">
     <button class="trigger" @click="open = !open">
       <span class="model" v-if="chat.selectedAgent">{{ chat.selectedAgent.attributes.name }}</span>
       <span class="model muted" v-else>Select agent</span>
@@ -150,12 +152,13 @@ function costLabel(c: string) {
 </template>
 
 <style scoped lang="scss">
-.selector { position: relative; display: inline-block; }
+.selector { position: relative; display: inline-block; min-width: 0; }
+.selector.compact { min-width: 0; max-width: 100%; }
 
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: transparent;
   border: 1px solid var(--rule);
   padding: 6px 8px 6px 12px;
@@ -165,11 +168,32 @@ function costLabel(c: string) {
   font-size: 13.5px;
   font-weight: 500;
   transition: all 0.12s;
+  max-width: 100%;
+  .model {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
   .model.muted { color: var(--ink-faint); font-weight: 400; }
-  .caret { font-size: 18px; color: var(--ink-muted); }
+  .caret { font-size: 18px; color: var(--ink-muted); flex-shrink: 0; }
   &:hover {
     background: var(--bg-soft);
     border-color: var(--rule-strong);
+  }
+}
+
+.selector.compact .trigger {
+  border: 0;
+  padding: 4px 4px 4px 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  border-radius: var(--radius-md);
+  .caret { font-size: 16px; }
+  &:hover {
+    background: var(--bg);
+    color: var(--ink);
   }
 }
 

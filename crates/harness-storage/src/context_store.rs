@@ -45,6 +45,11 @@ pub struct ConversationContext {
     pub asides: Vec<ContextCard>,
     #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
+    /// Turns since the last full context refresh by the context agent.
+    /// Reset to 0 on every refresh; bumped by 1 on every chat_send that
+    /// reuses the existing cards. Drives the drift-check trigger.
+    #[serde(default)]
+    pub turns_since_refresh: u32,
 }
 
 impl ConversationContext {
@@ -63,12 +68,15 @@ struct ContextRow {
     context_asides: Vec<ContextCard>,
     #[serde(default)]
     context_updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    context_turns_since_refresh: u32,
 }
 
 pub async fn load(db: &HarnessDb, session_id: &str) -> Result<ConversationContext> {
     let mut res = db
         .query(
-            "SELECT context_anchor, context_priorities, context_asides, context_updated_at \
+            "SELECT context_anchor, context_priorities, context_asides, \
+                    context_updated_at, context_turns_since_refresh \
              FROM type::thing('chat_session', $id)",
         )
         .bind(("id", session_id.to_string()))
@@ -80,6 +88,7 @@ pub async fn load(db: &HarnessDb, session_id: &str) -> Result<ConversationContex
         priorities: row.context_priorities,
         asides: row.context_asides,
         updated_at: row.context_updated_at,
+        turns_since_refresh: row.context_turns_since_refresh,
     })
 }
 
@@ -90,15 +99,17 @@ pub async fn save(
 ) -> Result<()> {
     db.query(
         "UPDATE type::thing('chat_session', $id) SET \
-         context_anchor      = $anchor, \
-         context_priorities  = $priorities, \
-         context_asides      = $asides, \
-         context_updated_at  = time::now()",
+         context_anchor               = $anchor, \
+         context_priorities           = $priorities, \
+         context_asides               = $asides, \
+         context_updated_at           = time::now(), \
+         context_turns_since_refresh  = $turns",
     )
     .bind(("id", session_id.to_string()))
     .bind(("anchor", ctx.anchor.clone()))
     .bind(("priorities", ctx.priorities.clone()))
     .bind(("asides", ctx.asides.clone()))
+    .bind(("turns", ctx.turns_since_refresh as i64))
     .await?;
     Ok(())
 }

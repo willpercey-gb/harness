@@ -132,7 +132,7 @@ mod tests {
                 ContextCard::edited("budget under £500"),
             ],
             asides: vec![ContextCard::new("note: timezone is GMT+0")],
-            updated_at: None,
+            ..Default::default()
         };
         context_store::save(&db, &id, &ctx).await.unwrap();
         let loaded = context_store::load(&db, &id).await.unwrap();
@@ -163,6 +163,21 @@ mod tests {
         let loaded = context_store::load(&db, &id).await.unwrap();
         assert_eq!(loaded.anchor.as_deref(), Some("second"));
         assert!(loaded.priorities.is_empty());
+    }
+
+    #[tokio::test]
+    async fn context_turns_counter_round_trips() {
+        let db = fresh().await;
+        let s = sessions::create(&db, "t", "ollama:x").await.unwrap();
+        let id = s.id.id.to_string();
+        let ctx = ConversationContext {
+            anchor: Some("a".into()),
+            turns_since_refresh: 3,
+            ..Default::default()
+        };
+        context_store::save(&db, &id, &ctx).await.unwrap();
+        let loaded = context_store::load(&db, &id).await.unwrap();
+        assert_eq!(loaded.turns_since_refresh, 3);
     }
 
     #[tokio::test]
