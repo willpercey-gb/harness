@@ -1,7 +1,10 @@
 //! Chat orchestration: agent registry, streaming pipeline, cancellation.
 
 pub mod agent_registry;
+pub mod anchor_agent;
 pub mod cancel;
+pub mod context;
+pub mod intent_agent;
 pub mod pipeline;
 pub mod service;
 
@@ -12,4 +15,5 @@ pub use agent_registry::{
 #[allow(deprecated)]
 pub use agent_registry::placeholder_agents;
 pub use cancel::CancellationRegistry;
+pub use context::{parse_envelope, parse_intent, xml_envelope, Intent, IntentSource};
 pub use service::{run_chat, ChatRunOutcome};
