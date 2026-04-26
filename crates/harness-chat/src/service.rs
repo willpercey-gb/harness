@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harness_storage::{messages, sessions, HarnessDb, Settings};
+use strands_core::conversation::SummarizingConversationManager;
+use strands_core::model::Model;
 use strands_core::types::content::ContentBlock;
 use strands_core::types::streaming::{DeltaContent, StreamEvent as CoreStream};
 use strands_core::Message;
@@ -17,7 +19,17 @@ use crate::agent_registry::{AgentConfig, Provider};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
 use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
 
-const SLIDING_WINDOW: usize = 20;
+/// How many prior messages we load from harness-storage to seed the
+/// agent. Beyond ~`SUMMARIZE_TRIGGER`, the strands
+/// `SummarizingConversationManager` collapses older turns into a
+/// summary message; below that, the agent simply sees them verbatim.
+const HISTORY_LOAD: usize = 200;
+/// Total message count that triggers summarization on the agent side.
+const SUMMARIZE_TRIGGER: usize = 40;
+/// How many recent messages always stay verbatim.
+const PRESERVE_RECENT: usize = 12;
+/// Fraction of older messages to summarize when triggered.
+const SUMMARY_RATIO: f32 = 0.4;
 const COALESCE_INTERVAL: Duration = Duration::from_millis(16);
 const THINKING_DEADLINE: Duration = Duration::from_secs(1);
 
@@ -91,7 +103,7 @@ pub async fn run_chat(
     // Drop the tail (it'll be re-appended by Agent::prompt) so we
     // don't double-send the latest user turn.
     let history =
-        match harness_storage::memory::sliding_window(&db, &session_id, SLIDING_WINDOW).await {
+        match harness_storage::memory::sliding_window(&db, &session_id, HISTORY_LOAD).await {
             Ok(h) => h,
             Err(e) => {
                 emit_err_done(&emit, format!("load history: {e}"));
@@ -130,14 +142,29 @@ pub async fn run_chat(
             .tool(ReadFile::new(settings.read_file_sandbox_root.clone()))
     }
 
+    fn summarizer(model: Arc<dyn Model>) -> SummarizingConversationManager {
+        SummarizingConversationManager::new(model)
+            .with_window_size(SUMMARIZE_TRIGGER)
+            .with_preserve_recent(PRESERVE_RECENT)
+            .with_summary_ratio(SUMMARY_RATIO)
+    }
+
     let builder_result = match agent.provider {
         Provider::Ollama => {
-            let model = OllamaModel::new(agent.model_id.clone())
+            // Two instances: one boxed inside the agent for chat
+            // streaming, one Arc'd for the conversation manager's
+            // summary calls. Both are stateless wrappers over reqwest.
+            let primary = OllamaModel::new(agent.model_id.clone())
                 .with_host(settings.ollama_host.clone());
+            let summary_model: Arc<dyn Model> = Arc::new(
+                OllamaModel::new(agent.model_id.clone())
+                    .with_host(settings.ollama_host.clone()),
+            );
             with_tools(
                 Agent::builder()
-                    .model(model)
+                    .model(primary)
                     .callback_handler(CallbackBridge { tx })
+                    .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
             )
@@ -151,17 +178,23 @@ pub async fn run_chat(
                     return ChatRunOutcome { session_id };
                 }
             };
-            let mut model = OpenRouterModel::new(agent.model_id.clone(), key);
-            if let Some(r) = settings.openrouter_referrer.clone() {
-                model = model.with_referrer(r);
-            }
-            if let Some(t) = settings.openrouter_app_title.clone() {
-                model = model.with_app_title(t);
-            }
+            let build_or = |k: String| {
+                let mut m = OpenRouterModel::new(agent.model_id.clone(), k);
+                if let Some(r) = settings.openrouter_referrer.clone() {
+                    m = m.with_referrer(r);
+                }
+                if let Some(t) = settings.openrouter_app_title.clone() {
+                    m = m.with_app_title(t);
+                }
+                m
+            };
+            let primary = build_or(key.clone());
+            let summary_model: Arc<dyn Model> = Arc::new(build_or(key));
             with_tools(
                 Agent::builder()
-                    .model(model)
+                    .model(primary)
                     .callback_handler(CallbackBridge { tx })
+                    .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
             )
@@ -173,11 +206,14 @@ pub async fn run_chat(
             // doesn't try to discover CLAUDE.md / plugins from
             // wherever harness happens to be run from.
             let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            let model = ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd);
+            let primary = ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd.clone());
+            let summary_model: Arc<dyn Model> =
+                Arc::new(ClaudeCliModel::new(agent.model_id.clone()).with_cwd(cwd));
             with_tools(
                 Agent::builder()
-                    .model(model)
+                    .model(primary)
                     .callback_handler(CallbackBridge { tx })
+                    .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
             )
