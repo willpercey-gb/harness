@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use harness_storage::{messages, sessions, HarnessDb, Settings};
+use harness_storage::{context_store, messages, sessions, HarnessDb, Settings};
 use strands_core::conversation::SummarizingConversationManager;
 use strands_core::model::Model;
 use strands_core::types::content::ContentBlock;
@@ -16,6 +16,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_registry::{AgentConfig, Provider};
+use crate::anchor_agent::{self, AnchorRequest};
+use crate::context::{xml_envelope, Intent, IntentSource};
+use crate::intent_agent::{self, IntentRequest};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
 use harness_tools::{Calculator, GetTime, HttpFetch, ReadFile};
 
@@ -35,6 +38,46 @@ const THINKING_DEADLINE: Duration = Duration::from_secs(1);
 
 pub struct ChatRunOutcome {
     pub session_id: String,
+}
+
+/// Build a fresh `Arc<dyn Model>` for the given provider + settings.
+/// Used at every stage of the per-turn pipeline (anchor agent, intent
+/// agent, summariser, primary agent) — strands models are stateless
+/// thin wrappers, so creating multiple instances is cheap.
+fn build_model(
+    agent: &AgentConfig,
+    settings: &Settings,
+) -> Result<Arc<dyn Model>, String> {
+    match agent.provider {
+        Provider::Ollama => {
+            let m = OllamaModel::new(agent.model_id.clone())
+                .with_host(settings.ollama_host.clone());
+            Ok(Arc::new(m))
+        }
+        Provider::OpenRouter => {
+            let key = settings
+                .openrouter_api_key
+                .clone()
+                .filter(|k| !k.trim().is_empty())
+                .ok_or_else(|| "OpenRouter API key not configured".to_string())?;
+            let mut m = OpenRouterModel::new(agent.model_id.clone(), key);
+            if let Some(r) = settings.openrouter_referrer.clone() {
+                m = m.with_referrer(r);
+            }
+            if let Some(t) = settings.openrouter_app_title.clone() {
+                m = m.with_app_title(t);
+            }
+            Ok(Arc::new(m))
+        }
+        Provider::ClaudeCli => {
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let m = ClaudeCliModel::new(agent.model_id.clone())
+                .with_cwd(cwd)
+                .with_dangerously_skip_permissions(true);
+            Ok(Arc::new(m))
+        }
+        other => Err(format!("provider {other:?} not yet supported")),
+    }
 }
 
 /// Bridges strands-core's CallbackHandler to a tokio mpsc channel — the
@@ -62,6 +105,7 @@ pub async fn run_chat(
     agent: AgentConfig,
     prompt: String,
     session_id: Option<String>,
+    intent_override: Option<Intent>,
     cancel: CancellationToken,
     emit: impl Fn(StreamEvent) + Send + Sync + 'static,
 ) -> ChatRunOutcome {
@@ -127,16 +171,95 @@ pub async fn run_chat(
     }
     let prompt_for_agent = prompt.clone();
 
+    // ---- Stage 1 + 2: anchor agent + intent classifier ----
+    let mut conv_context = context_store::load(&db, &session_id)
+        .await
+        .unwrap_or_default();
+
+    emit(StreamEvent::ContextStarted);
+
+    if let Ok(small_model) = build_model(&agent, &settings) {
+        let anchor_req = AnchorRequest {
+            model: small_model.clone(),
+            prior: &conv_context,
+            history: &history,
+            user_prompt: &prompt,
+            cancel: cancel.clone(),
+        };
+        conv_context = anchor_agent::extract_or_refine(anchor_req).await;
+        if let Err(e) = context_store::save(&db, &session_id, &conv_context).await {
+            tracing::warn!("save context: {e}");
+        }
+    } else {
+        tracing::warn!("anchor agent skipped: model unavailable for {:?}", agent.provider);
+    }
+
+    if cancel.is_cancelled() {
+        emit(StreamEvent::Cancelled);
+        return ChatRunOutcome { session_id };
+    }
+
+    if let Some(anchor) = &conv_context.anchor {
+        emit(StreamEvent::ContextAnchor {
+            text: anchor.clone(),
+        });
+    }
+    for p in &conv_context.priorities {
+        emit(StreamEvent::ContextPriority {
+            id: p.id.clone(),
+            text: p.text.clone(),
+            edited_by_user: p.edited_by_user,
+        });
+    }
+    for a in &conv_context.asides {
+        emit(StreamEvent::ContextAside {
+            id: a.id.clone(),
+            text: a.text.clone(),
+            edited_by_user: a.edited_by_user,
+        });
+    }
+    emit(StreamEvent::ContextDone);
+
+    let (intent, intent_source) = match intent_override {
+        Some(i) => (i, IntentSource::Manual),
+        None => match build_model(&agent, &settings) {
+            Ok(small) => {
+                let req = IntentRequest {
+                    model: small,
+                    context: &conv_context,
+                    user_prompt: &prompt,
+                    cancel: cancel.clone(),
+                };
+                (intent_agent::classify(req).await, IntentSource::Auto)
+            }
+            Err(_) => (Intent::Expand, IntentSource::Auto),
+        },
+    };
+    emit(StreamEvent::IntentClassified {
+        intent: intent.as_str().to_string(),
+        source: match intent_source {
+            IntentSource::Auto => "auto".into(),
+            IntentSource::Manual => "manual".into(),
+        },
+    });
+
+    let context_envelope = xml_envelope(&conv_context, Some((intent, intent_source)));
+
     // Build the agent for this turn, with tools constructed from
     // current Settings so allowlist / sandbox-root changes take effect
-    // on the next message without a restart.
+    // on the next message without a restart. The system prompt is
+    // prefixed with the multi-agent <context>...</context> + <intent>
+    // envelope so the main model knows the user's anchor / priorities /
+    // asides and how to weight the latest message.
     let (tx, rx) = mpsc::unbounded_channel::<CoreStream>();
 
     fn with_tools(
         b: strands_core::AgentBuilder,
         settings: &Settings,
+        system: String,
     ) -> strands_core::AgentBuilder {
-        b.tool(GetTime)
+        b.system_prompt(system)
+            .tool(GetTime)
             .tool(Calculator)
             .tool(HttpFetch::new(settings.http_fetch_allowlist.clone()))
             .tool(ReadFile::new(settings.read_file_sandbox_root.clone()))
@@ -167,6 +290,7 @@ pub async fn run_chat(
                     .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
+                context_envelope.clone(),
             )
             .build()
         }
@@ -197,6 +321,7 @@ pub async fn run_chat(
                     .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
+                context_envelope.clone(),
             )
             .build()
         }
@@ -225,6 +350,7 @@ pub async fn run_chat(
                     .conversation_manager(summarizer(summary_model))
                     .max_cycles(20),
                 &settings,
+                context_envelope.clone(),
             )
             .build()
         }

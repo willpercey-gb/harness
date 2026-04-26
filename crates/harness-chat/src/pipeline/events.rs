@@ -38,6 +38,31 @@ pub enum StreamEvent {
 
     /// Terminal event when the user cancelled mid-stream.
     Cancelled,
+
+    // ---- Multi-agent context pipeline events ----
+    /// Stage 1 (anchor agent) is running.
+    ContextStarted,
+    /// Final anchor extracted by the anchor agent.
+    ContextAnchor { text: String },
+    /// One priority card. Multiple of these may arrive per turn.
+    ContextPriority {
+        id: String,
+        text: String,
+        edited_by_user: bool,
+    },
+    /// One aside card.
+    ContextAside {
+        id: String,
+        text: String,
+        edited_by_user: bool,
+    },
+    /// Stage 1 finished; the cards above are the full new state.
+    ContextDone,
+    /// Stage 2: intent classified (or pulled from manual override).
+    IntentClassified {
+        intent: String,
+        source: String, // "auto" | "manual"
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
