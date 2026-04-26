@@ -6,8 +6,10 @@ pub mod pipeline;
 pub mod service;
 
 pub use agent_registry::{
-    discover_ollama, placeholder_agents, AgentConfig, AgentDto, AgentType, Architecture, CostTier,
+    discover_ollama, openrouter_agents, AgentConfig, AgentDto, AgentType, Architecture, CostTier,
     Provider,
 };
+#[allow(deprecated)]
+pub use agent_registry::placeholder_agents;
 pub use cancel::CancellationRegistry;
 pub use service::{run_chat, ChatRunOutcome};

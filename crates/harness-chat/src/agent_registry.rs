@@ -127,26 +127,95 @@ fn provider_label(p: Provider) -> &'static str {
     }
 }
 
-/// Static placeholder agents for providers we don't run yet — they
-/// surface in the UI provider chips with `disabled = true` so the user
-/// can see what's coming.
-pub fn placeholder_agents() -> Vec<AgentConfig> {
-    vec![
-        AgentConfig {
-            id: "openrouter:placeholder".into(),
+/// Curated list of OpenRouter models surfaced in the agent picker.
+/// When `enabled` is false (no API key configured), every entry is
+/// returned with `disabled: true` and a "configure API key" message,
+/// so the provider chip still renders with non-zero count.
+pub fn openrouter_agents(enabled: bool) -> Vec<AgentConfig> {
+    let disabled_msg = if enabled {
+        None
+    } else {
+        Some("Configure OpenRouter API key in Settings".to_string())
+    };
+
+    let entries: &[(&str, &str, &str, CostTier, Option<u32>, Architecture)] = &[
+        // ── Free tier ──
+        (
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "Llama 3.3 70B (free)",
+            "Meta's flagship 70B instruct model on the free tier.",
+            CostTier::Free,
+            Some(70),
+            Architecture::Dense,
+        ),
+        (
+            "qwen/qwen-2.5-72b-instruct:free",
+            "Qwen 2.5 72B (free)",
+            "Alibaba's general-purpose 72B model on the free tier.",
+            CostTier::Free,
+            Some(72),
+            Architecture::Dense,
+        ),
+        // ── Cheap-and-good ──
+        (
+            "anthropic/claude-haiku-4-5",
+            "Claude Haiku 4.5",
+            "Fast, cheap, capable Anthropic model. Good for everyday chats.",
+            CostTier::Low,
+            None,
+            Architecture::Unknown,
+        ),
+        (
+            "openai/gpt-4o-mini",
+            "GPT-4o mini",
+            "OpenAI's affordable multimodal model.",
+            CostTier::Low,
+            None,
+            Architecture::Unknown,
+        ),
+        // ── Premium ──
+        (
+            "anthropic/claude-opus-4-7",
+            "Claude Opus 4.7",
+            "Anthropic's most capable model. High reasoning, slow, premium-priced.",
+            CostTier::High,
+            None,
+            Architecture::Unknown,
+        ),
+        (
+            "openai/o3-mini",
+            "OpenAI o3-mini",
+            "OpenAI reasoning-focused model with extended thinking.",
+            CostTier::Medium,
+            None,
+            Architecture::Unknown,
+        ),
+    ];
+
+    entries
+        .iter()
+        .map(|(model_id, name, desc, cost, params, arch)| AgentConfig {
+            id: format!("openrouter:{model_id}"),
             agent_type: AgentType::Agent,
-            name: "OpenRouter (coming soon)".into(),
-            description: "OpenRouter provider lands in a follow-up phase.".into(),
+            name: (*name).to_string(),
+            description: (*desc).to_string(),
             provider: Provider::OpenRouter,
-            model_id: "tbd".into(),
-            parameters: None,
-            architecture: None,
-            cost: CostTier::Uncalculated,
-            supports_tools: false,
-            disabled: true,
-            disabled_message: Some("OpenRouter integration not yet enabled".into()),
-        },
-    ]
+            model_id: (*model_id).to_string(),
+            parameters: *params,
+            architecture: Some(*arch),
+            cost: *cost,
+            supports_tools: true,
+            disabled: !enabled,
+            disabled_message: disabled_msg.clone(),
+        })
+        .collect()
+}
+
+/// Backwards-compatible alias — phase-1 callers asked for "placeholder
+/// agents". Delegates to the curated OpenRouter list with key absent.
+#[deprecated(note = "use openrouter_agents(enabled) directly")]
+pub fn placeholder_agents() -> Vec<AgentConfig> {
+    openrouter_agents(false)
 }
 
 /// Probe an Ollama daemon at `host` for installed models and return one
@@ -258,9 +327,25 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_agents_disabled() {
-        let p = placeholder_agents();
+    fn openrouter_disabled_when_no_key() {
+        let p = openrouter_agents(false);
+        assert!(!p.is_empty());
         assert!(p.iter().all(|a| a.disabled));
+        assert!(
+            p.iter().all(|a| a.disabled_message.is_some()),
+            "every disabled entry has a hint message"
+        );
+    }
+
+    #[test]
+    fn openrouter_enabled_when_key_set() {
+        let p = openrouter_agents(true);
+        assert!(p.iter().all(|a| !a.disabled));
+        assert!(p.iter().all(|a| a.disabled_message.is_none()));
+        // At least one free, one premium, all marked OpenRouter provider.
+        assert!(p.iter().any(|a| matches!(a.cost, CostTier::Free)));
+        assert!(p.iter().any(|a| matches!(a.cost, CostTier::High)));
+        assert!(p.iter().all(|a| matches!(a.provider, Provider::OpenRouter)));
     }
 
     #[tokio::test]
