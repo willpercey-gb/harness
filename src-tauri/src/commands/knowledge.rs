@@ -293,16 +293,23 @@ pub async fn get_knowledge_stats(state: State<'_, AppState>) -> Result<Knowledge
 
 #[tauri::command]
 pub async fn ingest_markdown_folder(
-    path: String,
+    path: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IngestProgress, String> {
     let embedder = state
         .embedder
         .clone()
         .ok_or_else(|| "embedder unavailable — restart with internet to download the model".to_string())?;
-    let root = PathBuf::from(&path);
+    let root = match path.as_deref().map(str::trim) {
+        Some("") | None | Some("~") | Some("~/") => dirs::home_dir()
+            .ok_or_else(|| "could not resolve home directory".to_string())?,
+        Some(p) if p.starts_with("~/") => dirs::home_dir()
+            .ok_or_else(|| "could not resolve home directory".to_string())?
+            .join(&p[2..]),
+        Some(p) => PathBuf::from(p),
+    };
     if !root.is_dir() {
-        return Err(format!("not a directory: {path}"));
+        return Err(format!("not a directory: {}", root.display()));
     }
     ingest_folder(state.memex_db.clone(), embedder, root, |_| {}).await
 }

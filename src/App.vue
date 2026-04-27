@@ -42,7 +42,7 @@ function toggleRight() {
   top: 0;
   left: 0;
   right: 0;
-  height: var(--titlebar-h, 28px);
+  height: var(--titlebar-h, 32px);
   z-index: 50;
   -webkit-app-region: drag;
 }
@@ -66,5 +66,6 @@ function toggleRight() {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  padding-top: var(--titlebar-h, 32px);
 }
 </style>

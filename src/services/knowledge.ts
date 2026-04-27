@@ -44,6 +44,6 @@ export interface IngestProgress {
   current_file: string | null
 }
 
-export async function ingestMarkdownFolder(path: string): Promise<IngestProgress> {
-  return await invoke<IngestProgress>('ingest_markdown_folder', { path })
+export async function ingestMarkdownFolder(path?: string): Promise<IngestProgress> {
+  return await invoke<IngestProgress>('ingest_markdown_folder', { path: path ?? null })
 }

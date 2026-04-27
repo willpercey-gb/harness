@@ -212,6 +212,30 @@ fn find_named_cli(name: &str) -> Option<std::path::PathBuf> {
         }
     }
 
+    // nvm: ~/.nvm/versions/node/<version>/bin/<name>. The shell-PATH
+    // probe below will also find this, but Tauri-bundled apps sometimes
+    // run with a sandboxed shell that doesn't source the user's nvm
+    // init, so we look directly first.
+    if let Some(home) = dirs::home_dir() {
+        let nvm_root = home.join(".nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_root) {
+            // Newest version first — nvm sorts lexicographically by
+            // installed dir name; reverse-sort gets us the highest
+            // installed Node version, which is usually where the user's
+            // latest CLI install ended up.
+            let mut versions: Vec<_> = entries
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .collect();
+            versions.sort();
+            for dir in versions.into_iter().rev() {
+                let candidate = dir.join("bin").join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
     if let Ok(output) = std::process::Command::new("/bin/bash")
         .args(["-lc", &format!("command -v {name}")])
         .output()
