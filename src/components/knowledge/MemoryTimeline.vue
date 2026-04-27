@@ -139,9 +139,10 @@ onMounted(reload)
 
 <style scoped lang="scss">
 .timeline {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--bg);
 }
 .ingest-status-bar {
@@ -219,6 +220,8 @@ onMounted(reload)
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 .entry {
   background: var(--bg-soft);
