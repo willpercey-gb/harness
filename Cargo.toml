@@ -5,7 +5,11 @@ members = [
     "crates/harness-storage",
     "crates/harness-chat",
     "crates/harness-tools",
+    "crates/harness-mcp",
 ]
+# strands-rs is a git submodule with its own workspace; don't let cargo
+# absorb it into ours.
+exclude = ["strands-rs"]
 
 [workspace.package]
 version = "0.1.0"
@@ -31,13 +35,15 @@ uuid = { version = "1", features = ["v4", "serde"] }
 dirs = "6"
 surrealdb = { version = "2", features = ["kv-rocksdb", "kv-mem"] }
 
-# strands-rs (sibling repo)
-strands-core = { path = "../strands-rs/strands-core" }
-strands-ollama = { path = "../strands-rs/strands-ollama" }
-strands-openrouter = { path = "../strands-rs/strands-openrouter" }
-strands-claude-cli = { path = "../strands-rs/strands-claude-cli" }
-strands-codex-cli = { path = "../strands-rs/strands-codex-cli" }
-strands-gemini-cli = { path = "../strands-rs/strands-gemini-cli" }
+# strands-rs (vendored as a git submodule at ./strands-rs)
+# Local dev override: see .cargo/config.toml `paths` to redirect at the
+# sibling working copy in ~/Documents/Projects/strands-rs.
+strands-core = { path = "strands-rs/strands-core" }
+strands-ollama = { path = "strands-rs/strands-ollama" }
+strands-openrouter = { path = "strands-rs/strands-openrouter" }
+strands-claude-cli = { path = "strands-rs/strands-claude-cli" }
+strands-codex-cli = { path = "strands-rs/strands-codex-cli" }
+strands-gemini-cli = { path = "strands-rs/strands-gemini-cli" }
 
 # internal crates
 harness-storage = { path = "crates/harness-storage" }

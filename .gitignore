@@ -26,6 +26,9 @@ dist-ssr
 # Rust workspace
 target/
 
+# Local-only cargo config (dev paths override redirecting strands-rs to a sibling clone)
+.cargo/config.toml
+
 # Yarn (using yarn.lock)
 .yarn/
 .pnp.*

@@ -2,7 +2,10 @@
 //! store. Backs the /knowledge page in the frontend (graph explorer +
 //! memory timeline + search).
 
+use std::path::PathBuf;
+
 use chrono::{DateTime, Utc};
+use harness_tools::ingest::{ingest_folder, IngestProgress};
 use harness_tools::memex_api::{entities, memories, query, relationships, types as mtypes};
 use serde::Serialize;
 use tauri::State;
@@ -286,4 +289,20 @@ pub async fn get_knowledge_stats(state: State<'_, AppState>) -> Result<Knowledge
         entities_by_type,
         relationships: relationships_total,
     })
+}
+
+#[tauri::command]
+pub async fn ingest_markdown_folder(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<IngestProgress, String> {
+    let embedder = state
+        .embedder
+        .clone()
+        .ok_or_else(|| "embedder unavailable — restart with internet to download the model".to_string())?;
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(format!("not a directory: {path}"));
+    }
+    ingest_folder(state.memex_db.clone(), embedder, root, |_| {}).await
 }

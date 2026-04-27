@@ -1,3 +1,4 @@
+mod bridge;
 mod commands;
 mod state;
 
@@ -19,6 +20,16 @@ pub fn run() {
         .setup(|app| {
             let state = tauri::async_runtime::block_on(AppState::build())
                 .map_err(|e| anyhow::anyhow!("build app state: {e}"))?;
+
+            // Spawn the local TCP bridge so the harness-mcp proxy
+            // binary (used by the Claude Code plugin) can call our
+            // Memex DB without contending for the RocksDB lock.
+            let bridge_db = state.memex_db.clone();
+            let bridge_emb = state.embedder.clone();
+            tauri::async_runtime::spawn(async move {
+                bridge::start_bridge(bridge_db, bridge_emb).await;
+            });
+
             app.manage(state);
             Ok(())
         })
@@ -38,6 +49,7 @@ pub fn run() {
             commands::knowledge::get_recent_memories,
             commands::knowledge::query_knowledge,
             commands::knowledge::get_knowledge_stats,
+            commands::knowledge::ingest_markdown_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

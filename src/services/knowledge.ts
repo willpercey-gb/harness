@@ -34,3 +34,16 @@ export async function queryKnowledge(
 export async function getKnowledgeStats(): Promise<KnowledgeStats> {
   return await invoke<KnowledgeStats>('get_knowledge_stats')
 }
+
+export interface IngestProgress {
+  phase: string
+  files_seen: number
+  files_ingested: number
+  chunks_inserted: number
+  errors: number
+  current_file: string | null
+}
+
+export async function ingestMarkdownFolder(path: string): Promise<IngestProgress> {
+  return await invoke<IngestProgress>('ingest_markdown_folder', { path })
+}

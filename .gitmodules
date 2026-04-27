@@ -1,0 +1,3 @@
+[submodule "strands-rs"]
+	path = strands-rs
+	url = git@github.com:willpercey-gb/strands-rs.git

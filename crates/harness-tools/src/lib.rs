@@ -5,6 +5,7 @@
 //! struct itself — built once per chat turn from the current Settings.
 
 pub mod builtins;
+pub mod ingest;
 
 pub use builtins::{
     calculator::Calculator,

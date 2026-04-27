@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { getRecentMemories } from '@/services/knowledge'
+import { getRecentMemories, ingestMarkdownFolder } from '@/services/knowledge'
 import type { MemoryChunk } from '@/types/knowledge.types'
 
 const memories = ref<MemoryChunk[]>([])
@@ -8,6 +8,10 @@ const loading = ref(false)
 const error = ref('')
 const search = ref('')
 const selectedSource = ref<string>('all')
+const ingestPath = ref('')
+const ingesting = ref(false)
+const ingestStatus = ref<string>('')
+const ingestPanelOpen = ref(false)
 
 async function reload() {
   loading.value = true
@@ -56,6 +60,23 @@ function toggleExpand(id: string | null) {
   expandedId.value = expandedId.value === id ? null : id
 }
 
+async function runIngest() {
+  if (!ingestPath.value.trim() || ingesting.value) return
+  ingesting.value = true
+  ingestStatus.value = 'Ingesting…'
+  try {
+    const result = await ingestMarkdownFolder(ingestPath.value.trim())
+    ingestStatus.value = `Done: ${result.files_ingested} files, ${result.chunks_inserted} new chunks${
+      result.errors ? `, ${result.errors} errors` : ''
+    }`
+    await reload()
+  } catch (e: any) {
+    ingestStatus.value = `Failed: ${e?.message ?? String(e)}`
+  } finally {
+    ingesting.value = false
+  }
+}
+
 onMounted(reload)
 </script>
 
@@ -73,11 +94,34 @@ onMounted(reload)
           {{ s === 'all' ? 'All sources' : s }}
         </option>
       </select>
+      <button
+        class="refresh"
+        :class="{ on: ingestPanelOpen }"
+        @click="ingestPanelOpen = !ingestPanelOpen"
+        title="Ingest markdown folder"
+      >
+        <span class="material-symbols-outlined">folder_open</span>
+      </button>
       <button class="refresh" @click="reload" title="Reload">
         <span class="material-symbols-outlined">refresh</span>
       </button>
       <span class="count">{{ filtered.length }} / {{ memories.length }}</span>
     </header>
+
+    <div v-if="ingestPanelOpen" class="ingest-panel">
+      <input
+        v-model="ingestPath"
+        class="ingest-path"
+        type="text"
+        placeholder="/path/to/folder/of/markdown"
+        :disabled="ingesting"
+        @keydown.enter="runIngest"
+      />
+      <button class="ingest-go" :disabled="!ingestPath.trim() || ingesting" @click="runIngest">
+        {{ ingesting ? 'Ingesting…' : 'Ingest' }}
+      </button>
+      <span v-if="ingestStatus" class="ingest-status">{{ ingestStatus }}</span>
+    </div>
 
     <div v-if="loading" class="empty">Loading memories…</div>
     <div v-else-if="error" class="empty err">{{ error }}</div>
@@ -110,9 +154,47 @@ onMounted(reload)
 <style scoped lang="scss">
 .timeline {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   height: 100%;
   background: var(--bg);
+}
+.ingest-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-soft);
+  .ingest-path {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--ink);
+    &:focus { outline: 0; border-color: var(--accent); }
+  }
+  .ingest-go {
+    background: var(--ink);
+    color: var(--bg);
+    border: 0;
+    border-radius: var(--radius-md);
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
+    &:hover:not(:disabled) { background: var(--accent); }
+  }
+  .ingest-status {
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
 }
 .head {
   display: flex;

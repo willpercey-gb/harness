@@ -1,0 +1,5 @@
+{
+  "name": "Harness",
+  "description": "Personal knowledge graph plugin for the Harness desktop app — search and write to your stored memories, entities, and relationships from any Claude Code session.",
+  "version": "0.1.0"
+}
