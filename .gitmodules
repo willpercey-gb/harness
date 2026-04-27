@@ -1,3 +1,6 @@
 [submodule "strands-rs"]
 	path = strands-rs
 	url = git@github.com:willpercey-gb/strands-rs.git
+[submodule "memex-core"]
+	path = memex-core
+	url = git@github.com:willpercey-gb/memex-core.git

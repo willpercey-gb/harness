@@ -7,9 +7,10 @@ members = [
     "crates/harness-tools",
     "crates/harness-mcp",
 ]
-# strands-rs is a git submodule with its own workspace; don't let cargo
-# absorb it into ours.
-exclude = ["strands-rs"]
+# strands-rs and memex-core are git submodules. strands-rs has its own
+# workspace; memex-core is a standalone package consumed via path dep.
+# Keep them out of this workspace either way.
+exclude = ["strands-rs", "memex-core"]
 
 [workspace.package]
 version = "0.1.0"
