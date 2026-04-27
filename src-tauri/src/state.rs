@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harness_chat::{
-    claude_cli_agents, discover_ollama, find_claude_cli, openrouter_agents, AgentConfig,
-    CancellationRegistry,
+    claude_cli_agents, codex_cli_agents, discover_ollama, find_claude_cli, find_codex_cli,
+    find_gemini_cli, gemini_cli_agents, openrouter_agents, AgentConfig, CancellationRegistry,
 };
 use harness_storage::{init_db, settings, HarnessDb, Settings};
 use harness_tools::{init_memex_db, EmbeddingService, MemexDb};
@@ -35,10 +35,10 @@ impl AppState {
         let db = init_db(&db_path).await?;
         let mut loaded_settings = settings::load(&db).await.unwrap_or_default();
 
-        // Resolve the Claude CLI binary path if the user hasn't set
-        // one — Tauri-spawned subprocesses don't see the shell PATH.
-        // Lives in memory only; not persisted unless the user later
-        // overrides it through Settings.
+        // Resolve the Claude / Codex / Gemini CLI binaries if the user
+        // hasn't set one — Tauri-spawned subprocesses don't see the
+        // shell PATH. Lives in memory only; not persisted unless the
+        // user later overrides it through Settings.
         if loaded_settings.claude_cli_path.is_none() {
             if let Some(p) = find_claude_cli() {
                 tracing::info!("resolved claude CLI binary at {}", p.display());
@@ -48,6 +48,22 @@ impl AppState {
                     "claude CLI binary not found; ClaudeCli agents will fail until installed or \
                      a path is configured in Settings"
                 );
+            }
+        }
+        if loaded_settings.codex_cli_path.is_none() {
+            if let Some(p) = find_codex_cli() {
+                tracing::info!("resolved codex CLI binary at {}", p.display());
+                loaded_settings.codex_cli_path = Some(p);
+            } else {
+                tracing::info!("codex CLI binary not found; CodexCli agents will surface a spawn error");
+            }
+        }
+        if loaded_settings.gemini_cli_path.is_none() {
+            if let Some(p) = find_gemini_cli() {
+                tracing::info!("resolved gemini CLI binary at {}", p.display());
+                loaded_settings.gemini_cli_path = Some(p);
+            } else {
+                tracing::info!("gemini CLI binary not found; GeminiCli agents will surface a spawn error");
             }
         }
 
@@ -91,6 +107,12 @@ impl AppState {
         if fresh.claude_cli_path.is_none() {
             fresh.claude_cli_path = find_claude_cli();
         }
+        if fresh.codex_cli_path.is_none() {
+            fresh.codex_cli_path = find_codex_cli();
+        }
+        if fresh.gemini_cli_path.is_none() {
+            fresh.gemini_cli_path = find_gemini_cli();
+        }
         *self.settings.write().await = fresh;
         Ok(())
     }
@@ -104,6 +126,8 @@ impl AppState {
         let mut agents = discover_ollama(&settings.ollama_host).await;
         agents.extend(openrouter_agents(settings.openrouter_enabled()));
         agents.extend(claude_cli_agents());
+        agents.extend(codex_cli_agents());
+        agents.extend(gemini_cli_agents());
         agents
     }
 

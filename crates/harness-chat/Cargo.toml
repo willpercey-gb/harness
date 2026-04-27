@@ -10,6 +10,8 @@ strands-core.workspace = true
 strands-ollama.workspace = true
 strands-openrouter.workspace = true
 strands-claude-cli.workspace = true
+strands-codex-cli.workspace = true
+strands-gemini-cli.workspace = true
 harness-tools.workspace = true
 dirs = { workspace = true }
 tokio.workspace = true

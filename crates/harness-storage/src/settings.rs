@@ -34,6 +34,14 @@ pub struct Settings {
     /// Settings UI in a future phase.
     #[serde(default)]
     pub claude_cli_path: Option<PathBuf>,
+    /// Absolute path to the `codex` binary. Same discovery semantics
+    /// as `claude_cli_path`.
+    #[serde(default)]
+    pub codex_cli_path: Option<PathBuf>,
+    /// Absolute path to the `gemini` binary. Same discovery semantics
+    /// as `claude_cli_path`.
+    #[serde(default)]
+    pub gemini_cli_path: Option<PathBuf>,
     /// Override path for the Memex graph + vector store. When `None`,
     /// defaults to `~/.harness/memex-db`.
     #[serde(default)]
@@ -51,6 +59,8 @@ impl Default for Settings {
             http_fetch_allowlist: Vec::new(),
             read_file_sandbox_root: None,
             claude_cli_path: None,
+            codex_cli_path: None,
+            gemini_cli_path: None,
             memex_db_path: None,
         }
     }

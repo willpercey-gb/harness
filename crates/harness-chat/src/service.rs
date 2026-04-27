@@ -10,6 +10,8 @@ use strands_core::types::streaming::{DeltaContent, StreamEvent as CoreStream};
 use strands_core::Message;
 use strands_core::{Agent, CallbackHandler};
 use strands_claude_cli::ClaudeCliModel;
+use strands_codex_cli::CodexCliModel;
+use strands_gemini_cli::{ApprovalMode, GeminiCliModel};
 use strands_ollama::OllamaModel;
 use strands_openrouter::OpenRouterModel;
 use tokio::sync::mpsc;
@@ -82,6 +84,32 @@ fn build_model(
                 .with_cwd(cwd)
                 .with_dangerously_skip_permissions(true);
             if let Some(path) = &settings.claude_cli_path {
+                m = m.with_command(path.to_string_lossy().to_string());
+            }
+            Ok(Arc::new(m))
+        }
+        Provider::CodexCli => {
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            // `--dangerously-bypass-approvals-and-sandbox` so the CLI
+            // doesn't try to interactively prompt for tool approvals
+            // we have no way of routing through the Tauri UI.
+            // `--skip-git-repo-check` lets it run from $HOME.
+            let mut m = CodexCliModel::new()
+                .with_model(agent.model_id.clone())
+                .with_cwd(cwd)
+                .with_dangerously_bypass(true)
+                .with_skip_git_repo_check(true);
+            if let Some(path) = &settings.codex_cli_path {
+                m = m.with_command(path.to_string_lossy().to_string());
+            }
+            Ok(Arc::new(m))
+        }
+        Provider::GeminiCli => {
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let mut m = GeminiCliModel::new(agent.model_id.clone())
+                .with_cwd(cwd)
+                .with_approval_mode(ApprovalMode::Yolo);
+            if let Some(path) = &settings.gemini_cli_path {
                 m = m.with_command(path.to_string_lossy().to_string());
             }
             Ok(Arc::new(m))
@@ -383,7 +411,19 @@ pub async fn run_chat(
                     .model(primary)
                     .callback_handler(CallbackBridge { tx })
                     .conversation_manager(summarizer(summary_model))
-                    .max_cycles(20),
+                    .max_cycles(20)
+                    .retry_config(strands_core::RetryConfig {
+                        // Interactive chat: a model failure should
+                        // surface immediately so the user can decide
+                        // whether to retry. Background retries (esp.
+                        // for CLI providers like Gemini that have
+                        // their own 10× internal retry loop) burn
+                        // credits + minutes for no UX win.
+                        max_retries: 0,
+                        initial_backoff_ms: 0,
+                        backoff_multiplier: 1.0,
+                        max_backoff_ms: 0,
+                    }),
                 &settings,
                 context_envelope.clone(),
                 memex_db.clone(),
@@ -417,7 +457,19 @@ pub async fn run_chat(
                     .model(primary)
                     .callback_handler(CallbackBridge { tx })
                     .conversation_manager(summarizer(summary_model))
-                    .max_cycles(20),
+                    .max_cycles(20)
+                    .retry_config(strands_core::RetryConfig {
+                        // Interactive chat: a model failure should
+                        // surface immediately so the user can decide
+                        // whether to retry. Background retries (esp.
+                        // for CLI providers like Gemini that have
+                        // their own 10× internal retry loop) burn
+                        // credits + minutes for no UX win.
+                        max_retries: 0,
+                        initial_backoff_ms: 0,
+                        backoff_multiplier: 1.0,
+                        max_backoff_ms: 0,
+                    }),
                 &settings,
                 context_envelope.clone(),
                 memex_db.clone(),
@@ -458,7 +510,115 @@ pub async fn run_chat(
                     .model(primary)
                     .callback_handler(CallbackBridge { tx })
                     .conversation_manager(summarizer(summary_model))
-                    .max_cycles(20),
+                    .max_cycles(20)
+                    .retry_config(strands_core::RetryConfig {
+                        // Interactive chat: a model failure should
+                        // surface immediately so the user can decide
+                        // whether to retry. Background retries (esp.
+                        // for CLI providers like Gemini that have
+                        // their own 10× internal retry loop) burn
+                        // credits + minutes for no UX win.
+                        max_retries: 0,
+                        initial_backoff_ms: 0,
+                        backoff_multiplier: 1.0,
+                        max_backoff_ms: 0,
+                    }),
+                &settings,
+                context_envelope.clone(),
+                memex_db.clone(),
+                embedder.clone(),
+                session_id.clone(),
+            )
+            .build()
+        }
+        Provider::CodexCli => {
+            // Codex `exec` runs one-shot; we pin cwd to $HOME to avoid
+            // it discovering project-local config files unexpectedly.
+            // `--dangerously-bypass-approvals-and-sandbox` mirrors the
+            // ClaudeCli arm: harness has no way to route the codex tool
+            // approval prompts through its UI, so we bypass them.
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let cli_path = settings
+                .codex_cli_path
+                .clone()
+                .map(|p| p.to_string_lossy().to_string());
+            let build = || {
+                let mut m = CodexCliModel::new()
+                    .with_model(agent.model_id.clone())
+                    .with_cwd(cwd.clone())
+                    .with_dangerously_bypass(true)
+                    .with_skip_git_repo_check(true);
+                if let Some(cmd) = &cli_path {
+                    m = m.with_command(cmd.clone());
+                }
+                m
+            };
+            let primary = build();
+            let summary_model: Arc<dyn Model> = Arc::new(build());
+            with_tools(
+                Agent::builder()
+                    .model(primary)
+                    .callback_handler(CallbackBridge { tx })
+                    .conversation_manager(summarizer(summary_model))
+                    .max_cycles(20)
+                    .retry_config(strands_core::RetryConfig {
+                        // Interactive chat: a model failure should
+                        // surface immediately so the user can decide
+                        // whether to retry. Background retries (esp.
+                        // for CLI providers like Gemini that have
+                        // their own 10× internal retry loop) burn
+                        // credits + minutes for no UX win.
+                        max_retries: 0,
+                        initial_backoff_ms: 0,
+                        backoff_multiplier: 1.0,
+                        max_backoff_ms: 0,
+                    }),
+                &settings,
+                context_envelope.clone(),
+                memex_db.clone(),
+                embedder.clone(),
+                session_id.clone(),
+            )
+            .build()
+        }
+        Provider::GeminiCli => {
+            // Approval mode = Yolo for the same reason as the Claude /
+            // Codex arms: harness can't surface the CLI's interactive
+            // tool-approval prompts, so we auto-accept.
+            let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let cli_path = settings
+                .gemini_cli_path
+                .clone()
+                .map(|p| p.to_string_lossy().to_string());
+            let build = || {
+                let mut m = GeminiCliModel::new(agent.model_id.clone())
+                    .with_cwd(cwd.clone())
+                    .with_approval_mode(ApprovalMode::Yolo);
+                if let Some(cmd) = &cli_path {
+                    m = m.with_command(cmd.clone());
+                }
+                m
+            };
+            let primary = build();
+            let summary_model: Arc<dyn Model> = Arc::new(build());
+            with_tools(
+                Agent::builder()
+                    .model(primary)
+                    .callback_handler(CallbackBridge { tx })
+                    .conversation_manager(summarizer(summary_model))
+                    .max_cycles(20)
+                    .retry_config(strands_core::RetryConfig {
+                        // Interactive chat: a model failure should
+                        // surface immediately so the user can decide
+                        // whether to retry. Background retries (esp.
+                        // for CLI providers like Gemini that have
+                        // their own 10× internal retry loop) burn
+                        // credits + minutes for no UX win.
+                        max_retries: 0,
+                        initial_backoff_ms: 0,
+                        backoff_multiplier: 1.0,
+                        max_backoff_ms: 0,
+                    }),
                 &settings,
                 context_envelope.clone(),
                 memex_db.clone(),
@@ -682,11 +842,16 @@ async fn generate_title(
     emit: Arc<dyn Fn(StreamEvent) + Send + Sync>,
 ) {
     let model = OllamaModel::new("tinyllama").with_host(settings.ollama_host.clone());
-    let user_msg = Message::user(format!(
-        "Summarise the following user message as a 4–6 word session title. \
-         Output ONLY the title — no quotes, no punctuation, no labels, no prose.\n\n{prompt}"
-    ));
-    let mut stream = match model.stream(&[user_msg], None, &[]).await {
+
+    // Tinyllama (and other 1B-class models) tend to echo their own
+    // instructions when those instructions are stuffed into the user
+    // message. Keeping the directive in the system prompt and the
+    // user message as just the raw prompt content gets cleaner output.
+    let system = "You write concise 4-6 word session titles for a chat app. \
+                  Reply with the title only. No quotes, no punctuation, \
+                  no labels like 'Title:'. Lowercase or sentence case.";
+    let user_msg = Message::user(prompt.clone());
+    let mut stream = match model.stream(&[user_msg], Some(system), &[]).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("title gen open: {e}");
@@ -717,7 +882,15 @@ async fn generate_title(
     }
 
     let cleaned = clean_title(&title);
-    if cleaned.is_empty() {
+    if cleaned.is_empty() || looks_like_instruction_echo(&cleaned) {
+        // Tinyllama parroted the instruction back at us — keep the
+        // truncated-prompt fallback that sessions::create already
+        // wrote to chat_session.title and don't overwrite it with
+        // garbage.
+        tracing::debug!(
+            "title gen rejected (echo or empty): {:?}; keeping prompt-truncation fallback",
+            cleaned
+        );
         return;
     }
     if let Err(e) = sessions::rename(&db, &session_id, &cleaned).await {
@@ -732,8 +905,6 @@ async fn generate_title(
 
 fn clean_title(t: &str) -> String {
     let stripped = t.trim();
-    // Strip surrounding quotes / backticks / asterisks, plus trailing
-    // punctuation. Cap at 60 chars.
     let stripped = stripped
         .trim_matches(|c: char| {
             c == '"' || c == '\'' || c == '`' || c == '*' || c == '_' || c == '#'
@@ -742,5 +913,27 @@ fn clean_title(t: &str) -> String {
         .trim_end_matches('.')
         .trim_end_matches(',')
         .trim();
+    // Drop a leading "Title:" / "Session title:" label if the model
+    // emitted one despite being told not to.
+    let stripped = stripped
+        .trim_start_matches("Title:")
+        .trim_start_matches("Session title:")
+        .trim_start_matches("title:")
+        .trim();
     stripped.chars().take(60).collect()
+}
+
+/// Reject titles that look like the model echoed our system prompt
+/// rather than producing a title. These show up with very small
+/// models that aren't strong instruction-followers.
+fn looks_like_instruction_echo(t: &str) -> bool {
+    let lc = t.to_lowercase();
+    lc.starts_with("summarise")
+        || lc.starts_with("summarize")
+        || lc.starts_with("you write")
+        || lc.starts_with("reply with")
+        || lc.starts_with("the user")
+        || lc.contains("session title")
+        || lc.contains("4-6 word")
+        || lc.contains("4–6 word")
 }

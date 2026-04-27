@@ -18,6 +18,12 @@ pub enum Provider {
     /// Local Claude Code CLI (`claude -p`) — uses the user's logged-in
     /// session, no API key managed by harness.
     ClaudeCli,
+    /// Local OpenAI Codex CLI (`codex exec --json`) — uses the user's
+    /// logged-in session, no API key managed by harness.
+    CodexCli,
+    /// Local Google Gemini CLI (`gemini -p --output-format stream-json`)
+    /// — uses the user's logged-in session, no API key managed by harness.
+    GeminiCli,
     Bedrock,
     Vertex,
     OpenAi,
@@ -125,6 +131,8 @@ fn provider_label(p: Provider) -> &'static str {
         Provider::Ollama => "Ollama",
         Provider::OpenRouter => "OpenRouter",
         Provider::ClaudeCli => "ClaudeCLI",
+        Provider::CodexCli => "CodexCLI",
+        Provider::GeminiCli => "GeminiCLI",
         Provider::Bedrock => "Bedrock",
         Provider::Vertex => "Vertex",
         Provider::OpenAi => "OpenAI",
@@ -173,6 +181,132 @@ pub fn find_claude_cli() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+/// Try to locate the `codex` binary. Same fallback strategy as
+/// `find_claude_cli` — well-known install dirs, then a login-shell
+/// `command -v` probe so nvm/volta/asdf installs are picked up.
+pub fn find_codex_cli() -> Option<std::path::PathBuf> {
+    find_named_cli("codex")
+}
+
+/// Try to locate the `gemini` binary using the same strategy.
+pub fn find_gemini_cli() -> Option<std::path::PathBuf> {
+    find_named_cli("gemini")
+}
+
+fn find_named_cli(name: &str) -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".local/bin").join(name));
+        candidates.push(home.join("bin").join(name));
+    }
+    candidates.push(PathBuf::from("/usr/local/bin").join(name));
+    candidates.push(PathBuf::from("/opt/homebrew/bin").join(name));
+
+    for c in &candidates {
+        if c.exists() {
+            return Some(c.clone());
+        }
+    }
+
+    if let Ok(output) = std::process::Command::new("/bin/bash")
+        .args(["-lc", &format!("command -v {name}")])
+        .output()
+    {
+        if output.status.success() {
+            let raw = String::from_utf8_lossy(&output.stdout);
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let p = PathBuf::from(trimmed);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Curated agents backed by the local `codex exec --json` CLI. Always
+/// enabled when the binary is available — actual subprocess spawn is
+/// what surfaces a friendly error if it isn't.
+pub fn codex_cli_agents() -> Vec<AgentConfig> {
+    let entries: &[(&str, &str, &str, CostTier)] = &[
+        (
+            "gpt-5",
+            "GPT-5 (Codex CLI)",
+            "OpenAI GPT-5 via local Codex CLI. Uses your logged-in session.",
+            CostTier::High,
+        ),
+        (
+            "gpt-5-mini",
+            "GPT-5 mini (Codex CLI)",
+            "Smaller, faster GPT-5 via local Codex CLI. Uses your logged-in session.",
+            CostTier::Medium,
+        ),
+        (
+            "o3-mini",
+            "o3-mini (Codex CLI)",
+            "OpenAI reasoning-focused o3-mini via local Codex CLI.",
+            CostTier::Medium,
+        ),
+    ];
+    entries
+        .iter()
+        .map(|(alias, name, desc, cost)| AgentConfig {
+            id: format!("codex-cli:{alias}"),
+            agent_type: AgentType::Agent,
+            name: (*name).to_string(),
+            description: (*desc).to_string(),
+            provider: Provider::CodexCli,
+            model_id: (*alias).to_string(),
+            parameters: None,
+            architecture: None,
+            cost: *cost,
+            supports_tools: true,
+            disabled: false,
+            disabled_message: None,
+        })
+        .collect()
+}
+
+/// Curated agents backed by the local `gemini -p --output-format
+/// stream-json` CLI. Always enabled when the binary is available.
+pub fn gemini_cli_agents() -> Vec<AgentConfig> {
+    let entries: &[(&str, &str, &str, CostTier)] = &[
+        (
+            "gemini-2.5-pro",
+            "Gemini 2.5 Pro (CLI)",
+            "Google's most capable Gemini via local CLI. Uses your logged-in session.",
+            CostTier::High,
+        ),
+        (
+            "gemini-2.5-flash",
+            "Gemini 2.5 Flash (CLI)",
+            "Fast, cheap Gemini via local CLI. Uses your logged-in session.",
+            CostTier::Low,
+        ),
+    ];
+    entries
+        .iter()
+        .map(|(alias, name, desc, cost)| AgentConfig {
+            id: format!("gemini-cli:{alias}"),
+            agent_type: AgentType::Agent,
+            name: (*name).to_string(),
+            description: (*desc).to_string(),
+            provider: Provider::GeminiCli,
+            model_id: (*alias).to_string(),
+            parameters: None,
+            architecture: None,
+            cost: *cost,
+            supports_tools: true,
+            disabled: false,
+            disabled_message: None,
+        })
+        .collect()
 }
 
 /// Curated agents backed by the local `claude -p` CLI. Always enabled

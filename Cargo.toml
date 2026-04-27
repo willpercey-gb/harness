@@ -36,6 +36,8 @@ strands-core = { path = "../strands-rs/strands-core" }
 strands-ollama = { path = "../strands-rs/strands-ollama" }
 strands-openrouter = { path = "../strands-rs/strands-openrouter" }
 strands-claude-cli = { path = "../strands-rs/strands-claude-cli" }
+strands-codex-cli = { path = "../strands-rs/strands-codex-cli" }
+strands-gemini-cli = { path = "../strands-rs/strands-gemini-cli" }
 
 # internal crates
 harness-storage = { path = "crates/harness-storage" }

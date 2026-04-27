@@ -2719,7 +2719,9 @@ dependencies = [
  "serde",
  "serde_json",
  "strands-claude-cli",
+ "strands-codex-cli",
  "strands-core",
+ "strands-gemini-cli",
  "strands-ollama",
  "strands-openrouter",
  "thiserror 2.0.18",
@@ -6748,6 +6750,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "strands-codex-cli"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "futures",
+ "serde",
+ "serde_json",
+ "strands-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
 name = "strands-core"
 version = "0.1.0"
 dependencies = [
@@ -6762,6 +6780,22 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "strands-gemini-cli"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "futures",
+ "serde",
+ "serde_json",
+ "strands-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
