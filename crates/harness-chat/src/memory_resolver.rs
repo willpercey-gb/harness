@@ -26,9 +26,14 @@ use tracing::warn;
 
 /// Cosine-similarity floor for confident embedding matches. Above this,
 /// we merge into the existing entity and append the input form as an
-/// alias. The Phase-2 uncertain band starts at 0.75 (parked instead of
-/// merged).
+/// alias.
 const EMBEDDING_MATCH_THRESHOLD: f32 = 0.85;
+/// Lower edge of the "uncertain" embedding band. Hits in
+/// [UNCERTAIN_THRESHOLD, EMBEDDING_MATCH_THRESHOLD) are parked in the
+/// provisional buffer rather than merged or created — the next turn
+/// that mentions the same name with overlapping context is what
+/// disambiguates.
+pub const UNCERTAIN_THRESHOLD: f32 = 0.75;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -42,9 +47,24 @@ pub enum Resolution {
         canonical_name: String,
         appended_alias: Option<String>,
     },
-    /// No confident match — caller should create a fresh entity in the
-    /// requested table.
+    /// Embedding similarity fell in [0.75, 0.85). Caller should park
+    /// the extraction in the provisional buffer with these candidates;
+    /// the next turn that mentions the same name with overlapping
+    /// context will promote it.
+    Uncertain {
+        candidates: Vec<UncertainCandidate>,
+        top_score: f32,
+    },
+    /// No confident or candidate match — caller should create a fresh
+    /// entity in the requested table.
     New,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UncertainCandidate {
+    pub id: String,
+    pub canonical_name: String,
+    pub score: f32,
 }
 
 /// Lowercase, strip common punctuation (`.`, `'`, `-`, `_`, `,`, `/`),
@@ -190,20 +210,39 @@ async fn embedding_match(
         .map_err(memex_core_db_err)?;
     let rows: Vec<Row> = res.take(0).map_err(memex_core_db_err)?;
 
-    let mut best: Option<(f32, &Row)> = None;
-    for row in &rows {
-        let Some(vec) = &row.embedding else { continue };
-        let score = cosine(&target_vec, vec);
-        if best.map(|(s, _)| score > s).unwrap_or(true) {
-            best = Some((score, row));
-        }
-    }
+    // Score every row, then partition into the confident-match tier
+    // and the uncertain tier. We need both because the uncertain
+    // resolution carries up to 3 candidates for the UI / promotion
+    // logic, not just the top one.
+    let mut scored: Vec<(f32, &Row)> = rows
+        .iter()
+        .filter_map(|r| r.embedding.as_ref().map(|v| (cosine(&target_vec, v), r)))
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    let Some((score, chosen)) = best else {
+    let Some((score, chosen)) = scored.first().copied() else {
         return Ok(None);
     };
-    if score < EMBEDDING_MATCH_THRESHOLD {
+
+    if score < UNCERTAIN_THRESHOLD {
         return Ok(None);
+    }
+    if score < EMBEDDING_MATCH_THRESHOLD {
+        // Uncertain band — don't merge or create. Return the top up to
+        // 3 candidates to the caller for parking.
+        let candidates = scored
+            .iter()
+            .take(3)
+            .map(|(s, r)| UncertainCandidate {
+                id: r.id.to_string(),
+                canonical_name: r.name.clone(),
+                score: *s,
+            })
+            .collect();
+        return Ok(Some(Resolution::Uncertain {
+            candidates,
+            top_score: score,
+        }));
     }
 
     let id_str = chosen.id.to_string();

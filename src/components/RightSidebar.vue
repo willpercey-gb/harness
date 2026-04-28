@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useContextStore } from '@/stores/context'
 import { useChatStore } from '@/stores/chat'
 import { useMemoryStore } from '@/stores/memory'
+import {
+  getSessionExtractDisabled,
+  setSessionExtractDisabled,
+} from '@/services/chat'
 import AnchorCard from '@/components/context/AnchorCard.vue'
 import CardList from '@/components/context/CardList.vue'
 import IntentBadge from '@/components/context/IntentBadge.vue'
@@ -14,6 +18,42 @@ const ctx = useContextStore()
 const chat = useChatStore()
 const memory = useMemoryStore()
 const hasSession = computed(() => !!chat.currentSessionId)
+
+const incognito = ref(false)
+const incognitoBusy = ref(false)
+
+async function loadIncognito(sessionId: string | null) {
+  if (!sessionId) {
+    incognito.value = false
+    return
+  }
+  try {
+    incognito.value = await getSessionExtractDisabled(sessionId)
+  } catch {
+    incognito.value = false
+  }
+}
+
+async function toggleIncognito() {
+  const sid = chat.currentSessionId
+  if (!sid || incognitoBusy.value) return
+  const next = !incognito.value
+  incognitoBusy.value = true
+  try {
+    await setSessionExtractDisabled(sid, next)
+    incognito.value = next
+  } catch (e: any) {
+    console.warn('toggle incognito failed', e)
+  } finally {
+    incognitoBusy.value = false
+  }
+}
+
+watch(
+  () => chat.currentSessionId,
+  (id) => loadIncognito(id),
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -66,13 +106,27 @@ const hasSession = computed(() => !!chat.currentSessionId)
 
         <p v-if="ctx.saveError" class="error">{{ ctx.saveError }}</p>
 
-        <section class="memory" v-if="memory.active || memory.finishedAt">
+        <section class="memory">
           <header>
             <span class="title">Memory</span>
+            <button
+              class="incognito"
+              :class="{ on: incognito }"
+              :disabled="incognitoBusy"
+              :title="incognito
+                ? 'Incognito ON — extraction disabled for this session'
+                : 'Click to disable extraction for this session'"
+              @click="toggleIncognito"
+            >
+              <span class="material-symbols-outlined">
+                {{ incognito ? 'visibility_off' : 'visibility' }}
+              </span>
+            </button>
             <span v-if="memory.active" class="status active">extracting…</span>
-            <span v-else class="status idle">idle</span>
+            <span v-else-if="incognito" class="status off">incognito</span>
+            <span v-else-if="memory.finishedAt" class="status idle">idle</span>
           </header>
-          <p class="counts">
+          <p v-if="memory.active || memory.finishedAt" class="counts">
             <strong>{{ memory.entities }}</strong> entities ·
             <strong>{{ memory.relationships }}</strong> links ·
             <strong>{{ memory.memories }}</strong> memories
@@ -181,6 +235,27 @@ const hasSession = computed(() => !!chat.currentSessionId)
       &.idle {
         color: var(--ink-faint);
       }
+      &.off {
+        color: #f59e0b;
+      }
+    }
+    .incognito {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm, 4px);
+      padding: 2px 4px;
+      color: var(--ink-faint);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      margin-left: auto;
+      &:hover { color: var(--ink); }
+      &.on {
+        color: #f59e0b;
+        border-color: #f59e0b;
+      }
+      &:disabled { opacity: 0.5; cursor: not-allowed; }
+      .material-symbols-outlined { font-size: 16px; }
     }
   }
   .counts {

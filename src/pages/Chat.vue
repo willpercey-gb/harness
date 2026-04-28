@@ -81,6 +81,12 @@ export default defineComponent({
       currentStream: null as StreamHandle | null,
       title: '' as string,
       intentOverride: 'auto' as Intent | 'auto',
+      // Per-message toggle for the passive memory extractor. When
+      // false, this turn skips Stage 4 (graph + memory writes are
+      // not produced from this prompt). Persisted across turns within
+      // the session — flipping it off in the composer keeps it off
+      // until the user re-enables it.
+      extractOn: true,
     }
   },
   computed: {
@@ -184,6 +190,7 @@ export default defineComponent({
         this.chat.currentSessionId,
         (e: StreamEvent) => this.onStreamEvent(idx, e),
         overrideForRequest,
+        this.extractOn,
       )
       this.currentStream = handle
 
@@ -378,6 +385,19 @@ export default defineComponent({
           <div class="composer-bar-left">
             <AgentSelector compact />
             <IntentDropdown v-model:value="intentOverride" compact />
+            <button
+              type="button"
+              class="extract-toggle"
+              :class="{ off: !extractOn }"
+              :title="extractOn
+                ? 'Memory extraction ON for this message — click to skip'
+                : 'Memory extraction OFF — graph won\'t update from this turn'"
+              @click="extractOn = !extractOn"
+            >
+              <span class="material-symbols-outlined">
+                {{ extractOn ? 'psychology' : 'visibility_off' }}
+              </span>
+            </button>
           </div>
           <div class="composer-actions">
             <button
@@ -689,6 +709,23 @@ export default defineComponent({
   gap: 4px;
   min-width: 0;
   flex: 1;
+}
+.extract-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 6px);
+  padding: 4px 6px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  &:hover { color: var(--ink); background: var(--bg-soft); }
+  &.off {
+    color: var(--ink-faint);
+    border-color: var(--rule);
+    background: var(--bg-soft);
+  }
+  .material-symbols-outlined { font-size: 18px; }
 }
 // — Session alcove ————————————————————————————————
 .session-alcove {

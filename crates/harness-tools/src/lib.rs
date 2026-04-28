@@ -6,6 +6,8 @@
 
 pub mod builtins;
 pub mod ingest;
+pub mod maintenance;
+pub mod provisional;
 
 pub use builtins::{
     calculator::Calculator,
@@ -25,8 +27,11 @@ pub mod memex_api {
 use std::path::Path;
 
 /// Open (or create) the harness-owned Memex database at `path`.
-/// Thin wrapper around `memex_core::db::init_db` so the binary crate
-/// doesn't need to depend on memex-core directly.
+/// Thin wrapper around `memex_core::db::init_db` plus the harness-only
+/// extension schema (e.g. `provisional_extraction`).
 pub async fn init_memex_db(path: &Path) -> Result<MemexDb, memex_core::Error> {
-    memex_core::db::init_db(&path.to_path_buf()).await
+    let db = memex_core::db::init_db(&path.to_path_buf()).await?;
+    provisional::apply_schema(&db).await?;
+    maintenance::apply_schema(&db).await?;
+    Ok(db)
 }

@@ -15,6 +15,7 @@ thiserror.workspace = true
 tracing.workspace = true
 evalexpr = "11"
 memex-core = { path = "../../memex-core" }
+surrealdb = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

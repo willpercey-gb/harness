@@ -30,6 +30,22 @@ pub fn run() {
                 bridge::start_bridge(bridge_db, bridge_emb).await;
             });
 
+            // Periodic graph-health pass — flags near-duplicate pairs
+            // and zero-rel orphans. Runs once a few minutes after boot
+            // (so the embedder has finished warming) and then hourly.
+            let maint_db = state.memex_db.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(180)).await;
+                loop {
+                    if let Err(e) =
+                        harness_tools::maintenance::run_once(&maint_db).await
+                    {
+                        tracing::warn!("maintenance pass failed: {e}");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                }
+            });
+
             app.manage(state);
             Ok(())
         })
@@ -38,6 +54,8 @@ pub fn run() {
             commands::sessions::list_sessions,
             commands::sessions::get_history,
             commands::sessions::delete_session,
+            commands::sessions::get_session_extract_disabled,
+            commands::sessions::set_session_extract_disabled,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::settings::settings_get,
@@ -50,6 +68,10 @@ pub fn run() {
             commands::knowledge::query_knowledge,
             commands::knowledge::get_knowledge_stats,
             commands::knowledge::ingest_markdown_folder,
+            commands::knowledge::list_provisional,
+            commands::knowledge::promote_provisional,
+            commands::knowledge::promote_provisional_as_new,
+            commands::knowledge::discard_provisional,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

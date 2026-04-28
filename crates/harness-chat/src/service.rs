@@ -2,7 +2,11 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use harness_storage::{context_store, messages, sessions, HarnessDb, Settings};
+use harness_storage::{
+    context_store, messages,
+    sessions::{self, is_extract_disabled},
+    HarnessDb, Settings,
+};
 use strands_core::conversation::SummarizingConversationManager;
 use strands_core::model::Model;
 use strands_core::types::content::ContentBlock;
@@ -144,6 +148,10 @@ pub async fn run_chat(
     prompt: String,
     session_id: Option<String>,
     intent_override: Option<Intent>,
+    // `extract`: per-message kill switch for the passive memory
+    // extractor. False disables Stage 4 for this turn only (e.g. user
+    // is venting / scratch-thinking and doesn't want graph pollution).
+    extract: bool,
     memex_db: Arc<MemexDb>,
     embedder: Option<Arc<EmbeddingService>>,
     cancel: CancellationToken,
@@ -803,7 +811,10 @@ pub async fn run_chat(
     // (settings.memory_extractor_model) for structured-JSON output
     // rather than the chat agent's own model — keeps cost predictable
     // and lets the main response not contend with it for GPU memory.
-    if !cancelled && !full_assistant.is_empty() {
+    let session_extract_ok = !is_extract_disabled(&db, &session_id)
+        .await
+        .unwrap_or(false);
+    if extract && session_extract_ok && !cancelled && !full_assistant.is_empty() {
         if let Some(emb) = embedder.clone() {
             use crate::memory_agent::{self, ExtractRequest};
             let mem_db = memex_db.clone();

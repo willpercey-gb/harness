@@ -31,5 +31,10 @@ DEFINE FIELD OVERWRITE context_asides               ON chat_session FLEXIBLE TYP
 DEFINE FIELD OVERWRITE context_updated_at           ON chat_session TYPE option<datetime>;
 DEFINE FIELD OVERWRITE context_turns_since_refresh  ON chat_session TYPE option<int> DEFAULT 0;
 
+-- Phase 3: per-session incognito mode for the passive memory extractor.
+-- When true, Stage 4 is skipped for every turn in this session
+-- regardless of the per-message `extract` flag.
+DEFINE FIELD IF NOT EXISTS extract_disabled ON chat_session TYPE option<bool> DEFAULT false;
+
 DEFINE TABLE IF NOT EXISTS settings SCHEMALESS;
 "#;

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use harness_tools::ingest::{ingest_folder, IngestProgress};
 use harness_tools::memex_api::{entities, memories, query, relationships, types as mtypes};
+use harness_tools::provisional;
 use serde::Serialize;
 use tauri::State;
 
@@ -289,6 +290,178 @@ pub async fn get_knowledge_stats(state: State<'_, AppState>) -> Result<Knowledge
         entities_by_type,
         relationships: relationships_total,
     })
+}
+
+// ===========================================================================
+// Provisional-extraction surface (Phase 2 — uncertain-band drawer)
+// ===========================================================================
+
+#[derive(Serialize)]
+pub struct ProvisionalCandidateDto {
+    pub id: String,
+    pub canonical_name: String,
+    pub entity_type: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProvisionalDto {
+    pub id: String,
+    pub entity_name: String,
+    pub entity_type: String,
+    pub seen_count: i64,
+    pub top_score: Option<f64>,
+    pub session_id: String,
+    pub first_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub candidates: Vec<ProvisionalCandidateDto>,
+}
+
+#[tauri::command]
+pub async fn list_provisional(
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProvisionalDto>, String> {
+    let limit = limit.unwrap_or(100).clamp(1, 500) as usize;
+    let rows = provisional::list_pending(&state.memex_db, limit)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut cands = Vec::new();
+        for cid in &row.candidate_ids {
+            // The id is "table:uuid"; the table tells us the entity
+            // type. Rather than parse manually, query directly.
+            let cand: Option<EntitySummary> = match state
+                .memex_db
+                .query("SELECT id, name, description, meta::tb(id) AS et FROM type::thing($id)")
+                .bind(("id", cid.clone()))
+                .await
+            {
+                Ok(mut res) => res.take(0).ok().and_then(|v: Vec<EntitySummary>| v.into_iter().next()),
+                Err(_) => None,
+            };
+            if let Some(c) = cand {
+                cands.push(ProvisionalCandidateDto {
+                    id: c.id.to_string(),
+                    canonical_name: c.name,
+                    entity_type: c.et,
+                    description: c.description,
+                });
+            }
+        }
+        out.push(ProvisionalDto {
+            id: row.id.unwrap_or_default(),
+            entity_name: row.entity_name,
+            entity_type: row.entity_type,
+            seen_count: row.seen_count,
+            top_score: row.top_score,
+            session_id: row.session_id,
+            first_seen_at: row.first_seen_at,
+            last_seen_at: row.last_seen_at,
+            candidates: cands,
+        });
+    }
+    Ok(out)
+}
+
+#[derive(serde::Deserialize)]
+struct EntitySummary {
+    id: surrealdb::sql::Thing,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    et: String,
+}
+
+/// Promote a parked row to one of its candidates. The row gets marked
+/// `promoted` and its `entity_name` is appended as an alias on the
+/// resolved entity (so future mentions short-circuit).
+#[tauri::command]
+pub async fn promote_provisional(
+    provisional_id: String,
+    resolved_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Append the parked entity_name onto the resolved entity's aliases.
+    // Cheap: SurrealQL array::union dedupes for us.
+    state
+        .memex_db
+        .query(
+            "LET $row = (SELECT entity_name FROM type::thing($pid))[0]; \
+             UPDATE type::thing($rid) SET aliases = array::union(aliases, [$row.entity_name]), updated_at = time::now()",
+        )
+        .bind(("pid", provisional_id.clone()))
+        .bind(("rid", resolved_id.clone()))
+        .await
+        .map_err(|e| e.to_string())?;
+    provisional::mark_promoted(&state.memex_db, &provisional_id, &resolved_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn discard_provisional(
+    provisional_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    provisional::mark_discarded(&state.memex_db, &provisional_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Promote a parked row by *creating* a fresh entity from its name +
+/// type rather than matching against a candidate. Used when none of
+/// the candidates is right.
+#[tauri::command]
+pub async fn promote_provisional_as_new(
+    provisional_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use std::str::FromStr;
+    let embedder = state
+        .embedder
+        .clone()
+        .ok_or_else(|| "embedder unavailable".to_string())?;
+
+    #[derive(serde::Deserialize)]
+    struct Row {
+        entity_name: String,
+        entity_type: String,
+    }
+    let mut res = state
+        .memex_db
+        .query("SELECT entity_name, entity_type FROM type::thing($id)")
+        .bind(("id", provisional_id.clone()))
+        .await
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<Row> = res.take(0).map_err(|e| e.to_string())?;
+    let row = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| "provisional row not found".to_string())?;
+
+    let et = mtypes::EntityType::from_str(&row.entity_type)
+        .map_err(|e| format!("unknown entity type: {e}"))?;
+    let entity = mtypes::Entity {
+        id: None,
+        name: row.entity_name.clone(),
+        aliases: Vec::new(),
+        description: None,
+        content: None,
+        metadata: Default::default(),
+        created_at: None,
+        updated_at: None,
+    };
+    let id = entities::upsert_entity(&state.memex_db, &embedder, &et, &entity)
+        .await
+        .map_err(|e| e.to_string())?;
+    provisional::mark_promoted(&state.memex_db, &provisional_id, &id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(id)
 }
 
 #[tauri::command]

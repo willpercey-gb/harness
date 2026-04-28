@@ -107,6 +107,7 @@ export function streamChat(
   sessionId: string | null,
   onEvent: (e: StreamEvent) => void,
   intentOverride: string | null = null,
+  extract: boolean = true,
 ): StreamHandle {
   const channel = new Channel<StreamEvent>()
   channel.onmessage = (e) => onEvent(e)
@@ -116,10 +117,26 @@ export function streamChat(
     prompt,
     sessionId,
     intentOverride,
+    extract,
     onEvent: channel,
   }).then((sessionId) => ({ sessionId }))
   const cancel = async () => {
     await invoke('chat_cancel', { channelId })
   }
   return { done, cancel }
+}
+
+// ---------------------------------------------------------------------------
+// Per-session incognito mode (Phase 3)
+// ---------------------------------------------------------------------------
+
+export async function getSessionExtractDisabled(sessionId: string): Promise<boolean> {
+  return await invoke<boolean>('get_session_extract_disabled', { sessionId })
+}
+
+export async function setSessionExtractDisabled(
+  sessionId: string,
+  disabled: boolean,
+): Promise<void> {
+  await invoke<void>('set_session_extract_disabled', { sessionId, disabled })
 }

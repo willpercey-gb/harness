@@ -159,6 +159,42 @@ pub async fn rename(db: &HarnessDb, session_id: &str, title: &str) -> Result<()>
     Ok(())
 }
 
+/// Read the per-session "extraction disabled" flag (incognito mode).
+/// Returns false when the field is unset or the row is missing —
+/// extraction is on by default.
+pub async fn is_extract_disabled(db: &HarnessDb, session_id: &str) -> Result<bool> {
+    #[derive(serde::Deserialize)]
+    struct R {
+        #[serde(default)]
+        extract_disabled: Option<bool>,
+    }
+    let mut res = db
+        .query("SELECT extract_disabled FROM type::thing('chat_session', $id)")
+        .bind(("id", session_id.to_string()))
+        .await?;
+    let rows: Vec<R> = res.take(0).unwrap_or_default();
+    Ok(rows
+        .into_iter()
+        .next()
+        .and_then(|r| r.extract_disabled)
+        .unwrap_or(false))
+}
+
+/// Toggle the per-session "extraction disabled" flag.
+pub async fn set_extract_disabled(
+    db: &HarnessDb,
+    session_id: &str,
+    disabled: bool,
+) -> Result<()> {
+    db.query(
+        "UPDATE type::thing('chat_session', $id) SET extract_disabled = $disabled",
+    )
+    .bind(("id", session_id.to_string()))
+    .bind(("disabled", disabled))
+    .await?;
+    Ok(())
+}
+
 pub async fn soft_delete(db: &HarnessDb, session_id: &str) -> Result<()> {
     let mut res = db
         .query(

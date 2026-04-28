@@ -141,3 +141,24 @@ pub async fn delete_session(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_session_extract_disabled(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    sessions::is_extract_disabled(&state.db, &session_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_session_extract_disabled(
+    session_id: String,
+    disabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    sessions::set_extract_disabled(&state.db, &session_id, disabled)
+        .await
+        .map_err(|e| e.to_string())
+}

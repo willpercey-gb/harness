@@ -4,11 +4,12 @@ import { useRouter } from 'vue-router'
 import NetworkGraph from '@/components/knowledge/NetworkGraph.vue'
 import EntityPanel from '@/components/knowledge/EntityPanel.vue'
 import MemoryTimeline from '@/components/knowledge/MemoryTimeline.vue'
+import ProvisionalPanel from '@/components/knowledge/ProvisionalPanel.vue'
 import { getKnowledgeStats } from '@/services/knowledge'
 import type { KnowledgeStats } from '@/types/knowledge.types'
 
 const router = useRouter()
-const tab = ref<'graph' | 'memories'>('graph')
+const tab = ref<'graph' | 'memories' | 'provisional'>('graph')
 const stats = ref<KnowledgeStats | null>(null)
 
 async function loadStats() {
@@ -49,6 +50,15 @@ onMounted(loadStats)
           Memories
           <span v-if="stats" class="badge">{{ stats.memory_chunks }}</span>
         </button>
+        <button
+          class="tab"
+          :class="{ on: tab === 'provisional' }"
+          @click="tab = 'provisional'"
+          title="Pending entity decisions from the passive extractor"
+        >
+          <span class="material-symbols-outlined">help</span>
+          Pending
+        </button>
       </nav>
       <div class="spacer"></div>
       <button class="refresh" @click="loadStats" title="Refresh stats">
@@ -61,8 +71,11 @@ onMounted(loadStats)
         <NetworkGraph />
         <EntityPanel />
       </template>
-      <template v-else>
+      <template v-else-if="tab === 'memories'">
         <MemoryTimeline />
+      </template>
+      <template v-else>
+        <ProvisionalPanel />
       </template>
     </main>
   </div>

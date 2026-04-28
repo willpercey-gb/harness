@@ -20,13 +20,14 @@ use std::sync::Arc;
 use chrono::Utc;
 use futures::StreamExt;
 use harness_storage::ConversationContext;
+use harness_tools::provisional::{self, ParkRequest};
 use memex_core::{
     entities, memories, relationships, EmbeddingService, Entity, EntityType, MemexDb, MemoryChunk,
     RelationType,
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 use strands_core::model::Model;
 use strands_core::types::content::ContentBlock;
@@ -55,6 +56,10 @@ Output ONE JSON object and NOTHING ELSE — no prose, no markdown, no code fence
       \"to\":   <same>,\n\
       \"type\": <one of: works_at, part_of, works_on, uses_tech, knows_about, related_to, mentions> }\n\
   ],\n\
+  \"inferred_relationships\": [\n\
+    { \"from\": <name>, \"to\": <name>, \"type\": <relation>,\n\
+      \"reason\": <short why-string — e.g. \"Person P works at Org O and works on Project X, so Project X likely belongs to Org O\"> }\n\
+  ],\n\
   \"memories\": [\n\
     { \"content\": <atomic fact, one or two sentences>, \"summary\": <optional short label> }\n\
   ]\n\
@@ -63,7 +68,8 @@ Output ONE JSON object and NOTHING ELSE — no prose, no markdown, no code fence
 Rules:\n\
 - Prefer matching `mentioned_as` to an entity in the EXISTING ENTITIES list when it clearly refers to the same thing — don't invent variant spellings.\n\
 - Type-pick the most specific category that fits. Use `component` for sub-products inside a parent project.\n\
-- Only emit relationships explicitly stated or strongly implied by the turn; do NOT speculate.\n\
+- `relationships` are facts EXPLICITLY stated or directly implied by the turn (\"Person P works at Org O\").\n\
+- `inferred_relationships` are reasonable structural deductions across what's already known + what's just been said. Examples: someone working AT an org and working ON a project usually means the project belongs to the org. A project using a technology that's part of a vendor — link the vendor too. Be conservative — only emit inferences with clear evidential support.\n\
 - Memories should be atomic — one fact per object, salient enough to be worth recalling later. Skip greetings, banter, the model's own reasoning.\n\
 - If nothing in the turn is worth extracting, return empty arrays.\n\
 - NEVER wrap the JSON in markdown or commentary.\n";
@@ -320,6 +326,8 @@ struct ParsedExtraction {
     #[serde(default)]
     relationships: Vec<ParsedRelationship>,
     #[serde(default)]
+    inferred_relationships: Vec<ParsedRelationship>,
+    #[serde(default)]
     memories: Vec<ParsedMemory>,
 }
 
@@ -338,6 +346,8 @@ struct ParsedRelationship {
     to: String,
     #[serde(rename = "type")]
     rel_type: String,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -426,13 +436,59 @@ async fn commit(req: &ExtractRequest, parsed: ParsedExtraction) -> ExtractOutcom
                 // and the canonical name (so relationships referencing
                 // the existing graph spelling work).
                 resolved_map.insert(name.to_string(), (id.clone(), canonical_name.clone()));
-                resolved_map.insert(canonical_name.clone(), (id, canonical_name.clone()));
+                resolved_map.insert(canonical_name.clone(), (id.clone(), canonical_name.clone()));
+                // Promote any pending provisional row that was waiting
+                // for evidence on this name+type — we just confidently
+                // resolved the same name elsewhere, so the wait is over.
+                if let Err(e) = promote_pending_for(
+                    &req.memex_db,
+                    name,
+                    entity_type.table_name(),
+                    &id,
+                )
+                .await
+                {
+                    warn!("memory extractor: promote pending failed: {e}");
+                }
                 (req.emit)(StreamEvent::EntityResolved {
                     name: canonical_name,
                     entity_type: entity_type.table_name().to_string(),
                     status: EntityResolutionStatus::Matched,
                 });
                 outcome.entities += 1;
+            }
+            Resolution::Uncertain {
+                candidates,
+                top_score,
+            } => {
+                // Park the extraction. If the same (name, type) has
+                // already been parked once before, `park` bumps
+                // seen_count → and the post-pass below will promote.
+                let candidate_ids: Vec<String> =
+                    candidates.iter().map(|c| c.id.clone()).collect();
+                let req_park = ParkRequest {
+                    entity_name: name,
+                    entity_type: entity_type.table_name(),
+                    candidate_ids: candidate_ids.clone(),
+                    context_signature: None,
+                    session_id: &req.session_id,
+                    top_score: Some(top_score as f64),
+                };
+                match provisional::park(&req.memex_db, req_park).await {
+                    Ok(_) => {
+                        debug!(
+                            "memory extractor: parked '{name}' as uncertain (top={:.3}, candidates={})",
+                            top_score,
+                            candidate_ids.len()
+                        );
+                    }
+                    Err(e) => warn!("memory extractor: park '{name}' failed: {e}"),
+                }
+                // Don't index this name in resolved_map — relationships
+                // referencing it will fall through to the per-name DB
+                // lookup, which won't find anything either, so they'll
+                // be skipped. That's the desired behaviour: don't link
+                // to a candidate we're not confident about.
             }
             Resolution::New => {
                 let entity = Entity {
@@ -463,63 +519,33 @@ async fn commit(req: &ExtractRequest, parsed: ParsedExtraction) -> ExtractOutcom
         }
     }
 
+    // Post-pass: any provisional rows that hit seen_count >= 2 (and
+    // weren't already promoted above by name match) get promoted now
+    // to their top candidate. The "second mention" rule is the v1
+    // signal — refined to context-overlap matching in a later phase.
+    if let Err(e) = promote_repeat_offenders(&req.memex_db).await {
+        warn!("memory extractor: promote-repeat pass failed: {e}");
+    }
+    // Populate a context_signature on the still-pending rows from this
+    // turn, so the next turn's logic has something to overlap against.
+    if let Err(e) = stamp_signature_for_session(
+        &req.memex_db,
+        &req.session_id,
+        &collect_signature(&resolved_map),
+    )
+    .await
+    {
+        warn!("memory extractor: stamp signature failed: {e}");
+    }
+
     for rel in parsed.relationships {
-        let rel_type = match RelationType::from_str(&rel.rel_type) {
-            Ok(r) => r,
-            Err(_) => {
-                warn!(
-                    "memory extractor: skipping relationship with unknown type '{}'",
-                    rel.rel_type
-                );
-                continue;
-            }
-        };
-
-        let from_id = match resolve_id_by_name(&req.memex_db, &resolved_map, &rel.from).await {
-            Some(id) => id,
-            None => {
-                warn!(
-                    "memory extractor: relationship from '{}' not resolvable; skipping",
-                    rel.from
-                );
-                continue;
-            }
-        };
-        let to_id = match resolve_id_by_name(&req.memex_db, &resolved_map, &rel.to).await {
-            Some(id) => id,
-            None => {
-                warn!(
-                    "memory extractor: relationship to '{}' not resolvable; skipping",
-                    rel.to
-                );
-                continue;
-            }
-        };
-
-        let metadata: HashMap<String, Value> = HashMap::new();
-        match relationships::create_relationship(
-            &req.memex_db,
-            &rel_type,
-            &from_id,
-            &to_id,
-            &metadata,
-        )
-        .await
-        {
-            Ok(_) => {
-                (req.emit)(StreamEvent::RelationshipCreated {
-                    from_name: rel.from.clone(),
-                    to_name: rel.to.clone(),
-                    relation: rel_type.table_name().to_string(),
-                });
-                outcome.relationships += 1;
-            }
-            Err(e) => warn!(
-                "memory extractor: link {} -> {} ({}) failed: {e}",
-                rel.from,
-                rel.to,
-                rel_type.table_name()
-            ),
+        if commit_relationship(req, &resolved_map, &rel, false).await {
+            outcome.relationships += 1;
+        }
+    }
+    for rel in parsed.inferred_relationships {
+        if commit_relationship(req, &resolved_map, &rel, true).await {
+            outcome.relationships += 1;
         }
     }
 
@@ -550,6 +576,162 @@ async fn commit(req: &ExtractRequest, parsed: ParsedExtraction) -> ExtractOutcom
     }
 
     outcome
+}
+
+/// Commit one relationship row. Returns true on success. `inferred`
+/// rows get `metadata.inferred = true` + `metadata.reason = <model
+/// reason>`; the Knowledge UI can render those greyed-out.
+async fn commit_relationship(
+    req: &ExtractRequest,
+    resolved_map: &HashMap<String, (String, String)>,
+    rel: &ParsedRelationship,
+    inferred: bool,
+) -> bool {
+    let rel_type = match RelationType::from_str(&rel.rel_type) {
+        Ok(r) => r,
+        Err(_) => {
+            warn!(
+                "memory extractor: skipping relationship with unknown type '{}'",
+                rel.rel_type
+            );
+            return false;
+        }
+    };
+
+    let from_id = match resolve_id_by_name(&req.memex_db, resolved_map, &rel.from).await {
+        Some(id) => id,
+        None => {
+            warn!(
+                "memory extractor: relationship from '{}' not resolvable; skipping",
+                rel.from
+            );
+            return false;
+        }
+    };
+    let to_id = match resolve_id_by_name(&req.memex_db, resolved_map, &rel.to).await {
+        Some(id) => id,
+        None => {
+            warn!(
+                "memory extractor: relationship to '{}' not resolvable; skipping",
+                rel.to
+            );
+            return false;
+        }
+    };
+
+    let mut metadata: HashMap<String, Value> = HashMap::new();
+    if inferred {
+        metadata.insert("inferred".to_string(), Value::Bool(true));
+        if let Some(reason) = rel.reason.as_ref() {
+            metadata.insert("reason".to_string(), Value::String(reason.clone()));
+        }
+    }
+
+    match relationships::create_relationship(&req.memex_db, &rel_type, &from_id, &to_id, &metadata)
+        .await
+    {
+        Ok(_) => {
+            (req.emit)(StreamEvent::RelationshipCreated {
+                from_name: rel.from.clone(),
+                to_name: rel.to.clone(),
+                relation: rel_type.table_name().to_string(),
+            });
+            true
+        }
+        Err(e) => {
+            warn!(
+                "memory extractor: link {} -> {} ({}) failed: {e}",
+                rel.from,
+                rel.to,
+                rel_type.table_name()
+            );
+            false
+        }
+    }
+}
+
+/// Build a turn-level signature: a sorted, deduplicated, comma-joined
+/// list of every confidently-resolved entity id this turn produced.
+/// Used to disambiguate uncertain extractions across turns — two
+/// mentions of the same name are more likely the same entity if they
+/// share other entities in their respective turns.
+fn collect_signature(resolved_map: &HashMap<String, (String, String)>) -> String {
+    let unique: BTreeSet<&str> = resolved_map.values().map(|(id, _)| id.as_str()).collect();
+    unique.into_iter().collect::<Vec<_>>().join(",")
+}
+
+/// If a pending provisional row exists for `(name, entity_type)`,
+/// promote it to `resolved_id`. We just confidently resolved that
+/// name in this turn so the wait is over.
+async fn promote_pending_for(
+    db: &Arc<MemexDb>,
+    name: &str,
+    entity_type: &str,
+    resolved_id: &str,
+) -> Result<(), memex_core::Error> {
+    let rows = provisional::find_pending_for_name(db, name, entity_type).await?;
+    for row in rows {
+        if let Some(id) = row.id.as_ref() {
+            provisional::mark_promoted(db, id, resolved_id).await?;
+            tracing::info!(
+                "memory extractor: promoted provisional '{}' ({}) -> {}",
+                row.entity_name,
+                entity_type,
+                resolved_id
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Promote any pending provisional row whose `seen_count` has hit 2 or
+/// more (i.e. the same name+type has been parked twice) by linking it
+/// to its top candidate. The second mention is treated as enough
+/// evidence to commit; finer context-overlap heuristics live in a
+/// later phase.
+async fn promote_repeat_offenders(db: &Arc<MemexDb>) -> Result<(), memex_core::Error> {
+    let pending = provisional::list_pending(db, 200).await?;
+    for row in pending {
+        if row.seen_count < 2 {
+            continue;
+        }
+        let Some(top) = row.candidate_ids.first().cloned() else {
+            continue;
+        };
+        if let Some(id) = row.id.as_ref() {
+            provisional::mark_promoted(db, id, &top).await?;
+            tracing::info!(
+                "memory extractor: promoted repeat-offender '{}' ({}) -> {} after {} mentions",
+                row.entity_name,
+                row.entity_type,
+                top,
+                row.seen_count
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Stamp this turn's signature onto every still-pending row that
+/// belongs to the same session, so the *next* turn that lands here can
+/// make a context-overlap decision.
+async fn stamp_signature_for_session(
+    db: &Arc<MemexDb>,
+    session_id: &str,
+    signature: &str,
+) -> Result<(), memex_core::Error> {
+    if signature.is_empty() {
+        return Ok(());
+    }
+    db.query(
+        "UPDATE provisional_extraction SET context_signature = $sig \
+         WHERE status = 'pending' AND session_id = $session AND (context_signature = NONE OR context_signature = '')",
+    )
+    .bind(("sig", signature.to_string()))
+    .bind(("session", session_id.to_string()))
+    .await
+    .map_err(|e| memex_core::Error::Db(e.to_string()))?;
+    Ok(())
 }
 
 async fn resolve_id_by_name(

@@ -4,11 +4,16 @@ use tauri::{ipc::Channel, State};
 use crate::state::AppState;
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
     agent: String,
     prompt: String,
     session_id: Option<String>,
     intent_override: Option<String>,
+    // `extract`: per-message kill switch for Stage 4. None/true =
+    // extract; false = skip. Session-level `extract_disabled`
+    // (incognito mode) wins regardless.
+    extract: Option<bool>,
     on_event: Channel<StreamEvent>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -30,6 +35,12 @@ pub async fn chat_send(
         _ => None,
     });
 
+    // Resolve the effective extract flag. Per-message toggle is the
+    // primary control; we'll AND it with the session-level
+    // `extract_disabled` flag inside `run_chat` once the session id is
+    // known (because for fresh sessions the row doesn't exist yet).
+    let extract = extract.unwrap_or(true);
+
     let channel_id = on_event.id();
     let token = state.cancellations.register(channel_id).await;
     let cancellations = state.cancellations.clone();
@@ -46,6 +57,7 @@ pub async fn chat_send(
         prompt,
         session_id,
         intent,
+        extract,
         memex_db,
         embedder,
         token,
