@@ -548,6 +548,177 @@ pub async fn update_entity_fields(
     Ok(())
 }
 
+/// Full edit: rename, retype, and replace all display fields in one
+/// operation. Returns the entity's id AFTER the edit (changes only if
+/// the type was changed — retype moves the row to a different
+/// SurrealDB table and assigns a new id).
+///
+/// - `name` becomes the new canonical. Collision-checked against all
+///   other entities (case-insensitive); errors if the new name is
+///   already taken by a different row.
+/// - `entity_type` may differ from the row's current table. If it
+///   does, the row is copied to the new table, every relationship's
+///   `in` / `out` reference is rewritten, and the old row is deleted.
+/// - `aliases`, `description`, `content` REPLACE the existing values
+///   (no append / union semantics) so the user can prune freely.
+/// - `name` change triggers a re-embed so vector search still finds
+///   the row by its new canonical.
+#[tauri::command]
+pub async fn edit_entity(
+    id: String,
+    name: String,
+    entity_type: String,
+    aliases: Vec<String>,
+    description: Option<String>,
+    content: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use std::str::FromStr;
+
+    let embedder = state
+        .embedder
+        .clone()
+        .ok_or_else(|| "embedder unavailable".to_string())?;
+
+    let new_name = name.trim().to_string();
+    if new_name.is_empty() {
+        return Err("name is required".into());
+    }
+    let new_type = mtypes::EntityType::from_str(&entity_type)
+        .map_err(|e| format!("unknown entity_type '{entity_type}': {e}"))?;
+
+    // Sanitise aliases (trim, drop empties, drop duplicates of the
+    // canonical name).
+    let aliases: Vec<String> = aliases
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s.to_lowercase() != new_name.to_lowercase())
+        .collect();
+    let description = description.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let content = content.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+    let (current_table, _) = id
+        .split_once(':')
+        .ok_or_else(|| format!("malformed id: {id}"))?;
+    let current_table = current_table.to_string();
+    let target_table = new_type.table_name().to_string();
+
+    // Collision check: another row with the same canonical name
+    // (case-insensitive). Skip for the row we're editing if the
+    // collision is on itself (e.g. case change on the same id).
+    if let Some((_et, existing)) = entities::find_entity_any_type(&state.memex_db, &new_name)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        if existing.id.as_deref() != Some(&id) {
+            return Err(format!(
+                "name '{new_name}' is already taken by another entity"
+            ));
+        }
+    }
+
+    let new_embedding = embedder.embed_text(&new_name).await.map_err(|e| e.to_string())?;
+
+    if current_table == target_table {
+        // Same table — straightforward UPDATE in place.
+        state
+            .memex_db
+            .query(
+                "UPDATE type::thing($id) SET \
+                 name = $name, \
+                 aliases = $aliases, \
+                 description = $description, \
+                 content = $content, \
+                 embedding = $embedding, \
+                 updated_at = time::now()",
+            )
+            .bind(("id", id.clone()))
+            .bind(("name", new_name))
+            .bind(("aliases", aliases))
+            .bind(("description", description))
+            .bind(("content", content))
+            .bind(("embedding", new_embedding))
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(id);
+    }
+
+    // Different table — retype. Create a fresh row in the target
+    // table, rewrite every edge's in/out reference, then delete the
+    // old row. Done as separate queries (no transaction wrapper)
+    // because SurrealDB's transaction semantics across UPDATE +
+    // CREATE in the embedded engine are awkward; idempotency at the
+    // edge-rewrite step keeps a partial failure recoverable.
+    #[derive(serde::Deserialize)]
+    struct CreatedRow {
+        id: surrealdb::sql::Thing,
+    }
+    let created: Vec<CreatedRow> = state
+        .memex_db
+        .query(
+            "CREATE type::table($table) SET \
+             name = $name, \
+             aliases = $aliases, \
+             description = $description, \
+             content = $content, \
+             embedding = $embedding, \
+             metadata = {}",
+        )
+        .bind(("table", target_table.clone()))
+        .bind(("name", new_name))
+        .bind(("aliases", aliases))
+        .bind(("description", description))
+        .bind(("content", content))
+        .bind(("embedding", new_embedding))
+        .await
+        .map_err(|e| e.to_string())?
+        .take(0)
+        .map_err(|e| e.to_string())?;
+    let new_id = created
+        .into_iter()
+        .next()
+        .map(|r| r.id.to_string())
+        .ok_or_else(|| "retype: CREATE returned no row".to_string())?;
+
+    // Rewrite every relationship table.
+    for rel in [
+        "works_at",
+        "part_of",
+        "works_on",
+        "uses_tech",
+        "knows_about",
+        "related_to",
+        "mentions",
+    ] {
+        let _ = state
+            .memex_db
+            .query(format!(
+                "UPDATE {rel} SET in = type::thing($new) WHERE in = type::thing($old)"
+            ))
+            .bind(("new", new_id.clone()))
+            .bind(("old", id.clone()))
+            .await;
+        let _ = state
+            .memex_db
+            .query(format!(
+                "UPDATE {rel} SET out = type::thing($new) WHERE out = type::thing($old)"
+            ))
+            .bind(("new", new_id.clone()))
+            .bind(("old", id.clone()))
+            .await;
+    }
+
+    // Drop the old row.
+    state
+        .memex_db
+        .query(format!("DELETE {current_table} WHERE id = type::thing($id)"))
+        .bind(("id", id))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(new_id)
+}
+
 /// Soft-delete an entity (sets archived = true). Edges aren't pruned;
 /// the graph view filters archived nodes out via `archived != true`.
 #[tauri::command]

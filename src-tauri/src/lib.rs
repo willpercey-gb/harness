@@ -74,6 +74,7 @@ pub fn run() {
             commands::knowledge::discard_provisional,
             commands::knowledge::upsert_entity_manual,
             commands::knowledge::update_entity_fields,
+            commands::knowledge::edit_entity,
             commands::knowledge::archive_entity,
             commands::knowledge::create_relationship_manual,
         ])

@@ -150,6 +150,32 @@ export async function archiveEntity(id: string): Promise<void> {
   await invoke<void>('archive_entity', { id })
 }
 
+export interface EditEntityInput {
+  name: string
+  entityType: EntityTypeName
+  aliases: string[]
+  description: string | null
+  content: string | null
+}
+
+/**
+ * Full edit: rename, retype, replace aliases / description / content
+ * in one shot. Returns the entity's id AFTER the edit. The id changes
+ * only when the type was changed (retype moves the row to a different
+ * SurrealDB table) — callers should always use the returned id for
+ * follow-up reads.
+ */
+export async function editEntity(id: string, fields: EditEntityInput): Promise<string> {
+  return await invoke<string>('edit_entity', {
+    id,
+    name: fields.name,
+    entityType: fields.entityType,
+    aliases: fields.aliases,
+    description: fields.description,
+    content: fields.content,
+  })
+}
+
 export async function createRelationshipManual(
   fromId: string,
   toId: string,
