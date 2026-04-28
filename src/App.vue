@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import LeftSidebar from '@/components/LeftSidebar.vue'
 import RightSidebar from '@/components/RightSidebar.vue'
 
 const darkMode = ref(true)
 const rightOpen = ref(false)
+const route = useRoute()
+// Right sidebar is chat-only (anchor / priorities / asides + memory
+// status are all per-conversation concepts). Routes opt in via
+// `meta.rightSidebar` in router.ts; everything else hides it
+// completely so pages like Knowledge / Settings get the full width.
+const showRightSidebar = computed(() => Boolean(route.meta?.rightSidebar))
 
 onMounted(() => {
   const stored = window.localStorage.getItem('darkMode')
@@ -58,7 +65,10 @@ async function onDragDoubleClick(e: MouseEvent) {
 <template>
   <div
     class="app-shell"
-    :class="{ 'right-open': rightOpen }"
+    :class="{
+      'right-open': rightOpen && showRightSidebar,
+      'right-hidden': !showRightSidebar,
+    }"
     @mousedown="onDragMouseDown"
     @dblclick="onDragDoubleClick"
     data-tauri-drag-region
@@ -67,7 +77,11 @@ async function onDragDoubleClick(e: MouseEvent) {
     <main class="main-stage">
       <RouterView />
     </main>
-    <RightSidebar :open="rightOpen" @toggle="toggleRight" />
+    <RightSidebar
+      v-if="showRightSidebar"
+      :open="rightOpen"
+      @toggle="toggleRight"
+    />
   </div>
 </template>
 
@@ -87,6 +101,11 @@ async function onDragDoubleClick(e: MouseEvent) {
 
   &.right-open {
     grid-template-columns: 260px 1fr 280px;
+  }
+  &.right-hidden {
+    // Routes that opted out of the right sidebar collapse to two
+    // columns so the page gets the full width.
+    grid-template-columns: 260px 1fr;
   }
 }
 .main-stage {
