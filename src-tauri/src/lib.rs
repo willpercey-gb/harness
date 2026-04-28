@@ -72,6 +72,10 @@ pub fn run() {
             commands::knowledge::promote_provisional,
             commands::knowledge::promote_provisional_as_new,
             commands::knowledge::discard_provisional,
+            commands::knowledge::upsert_entity_manual,
+            commands::knowledge::update_entity_fields,
+            commands::knowledge::archive_entity,
+            commands::knowledge::create_relationship_manual,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

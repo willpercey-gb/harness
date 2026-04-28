@@ -246,7 +246,14 @@ export function useGraphData() {
     searchQuery,
     hiddenTypes,
     entityTypes,
+    /** All entities currently in the graph store, regardless of
+     *  filtering. Consumers (e.g. the seed form) need this for
+     *  pickers that target any existing row. */
+    allEntities: rawEntities,
     loadGraph,
+    /** Re-fetch from the backend. Used after manual entity / link
+     *  creation so the graph view picks up the new node. */
+    refresh: loadGraph,
     selectNode,
     unfocus,
     setSearchQuery,

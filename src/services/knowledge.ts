@@ -89,3 +89,75 @@ export async function promoteProvisionalAsNew(provisionalId: string): Promise<st
 export async function discardProvisional(provisionalId: string): Promise<void> {
   await invoke<void>('discard_provisional', { provisionalId })
 }
+
+// ---------------------------------------------------------------------------
+// Manual entity + relationship seeding (Knowledge page admin UI)
+// ---------------------------------------------------------------------------
+
+export const ENTITY_TYPES = [
+  'person',
+  'organization',
+  'project',
+  'technology',
+  'topic',
+  'location',
+  'component',
+] as const
+export type EntityTypeName = (typeof ENTITY_TYPES)[number]
+
+export const RELATION_TYPES = [
+  'works_at',
+  'part_of',
+  'works_on',
+  'uses_tech',
+  'knows_about',
+  'related_to',
+  'mentions',
+] as const
+export type RelationTypeName = (typeof RELATION_TYPES)[number]
+
+export interface UpsertEntityInput {
+  entityType: EntityTypeName
+  name: string
+  aliases?: string[]
+  description?: string | null
+  content?: string | null
+}
+
+export async function upsertEntityManual(input: UpsertEntityInput): Promise<string> {
+  return await invoke<string>('upsert_entity_manual', {
+    entityType: input.entityType,
+    name: input.name,
+    aliases: input.aliases ?? null,
+    description: input.description ?? null,
+    content: input.content ?? null,
+  })
+}
+
+export async function updateEntityFields(
+  id: string,
+  fields: { aliases?: string[]; description?: string | null; content?: string | null },
+): Promise<void> {
+  await invoke<void>('update_entity_fields', {
+    id,
+    aliases: fields.aliases ?? null,
+    description: fields.description ?? null,
+    content: fields.content ?? null,
+  })
+}
+
+export async function archiveEntity(id: string): Promise<void> {
+  await invoke<void>('archive_entity', { id })
+}
+
+export async function createRelationshipManual(
+  fromId: string,
+  toId: string,
+  relation: RelationTypeName,
+): Promise<string> {
+  return await invoke<string>('create_relationship_manual', {
+    fromId,
+    toId,
+    relation,
+  })
+}

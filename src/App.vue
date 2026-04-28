@@ -25,27 +25,26 @@ function toggleRight() {
   window.localStorage.setItem('rightOpen', String(rightOpen.value))
 }
 
-// JS fallback for the strip. `data-tauri-drag-region` is the declarative
-// path and should work on its own — but if a Vue scoped-style or stray
-// pointer-events ever swallows the event, an explicit startDragging on
-// mousedown keeps the window movable. Double-click toggles maximise to
-// match macOS title-bar behaviour.
-async function onStripMouseDown(e: MouseEvent) {
+// `data-tauri-drag-region` is the declarative path, but on macOS overlay
+// titlebars it's flaky — we make startDragging() the load-bearing
+// mechanism via an explicit mousedown listener. Double-click toggles
+// maximise to match the native macOS title-bar gesture.
+async function onDragMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
-  // Don't hijack mousedown that started on a real interactive child
-  // (the strip has none today, but futureproof against accidental
-  // overlays inside the strip).
+  // Don't hijack drags that started on an interactive child.
   const target = e.target as HTMLElement
-  if (target.closest('button, a, input, textarea, [role="button"]')) return
+  if (target.closest('button, a, input, textarea, select, [role="button"]')) return
   try {
     await getCurrentWindow().startDragging()
   } catch (err) {
-    // Browser-only dev preview (e.g. `vite` outside Tauri) — silent.
+    // Vite browser preview (no Tauri host) — silent.
     console.debug('startDragging unavailable:', err)
   }
 }
 
-async function onStripDoubleClick() {
+async function onDragDoubleClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (target.closest('button, a, input, textarea, select, [role="button"]')) return
   try {
     const w = getCurrentWindow()
     if (await w.isMaximized()) await w.unmaximize()
@@ -58,12 +57,12 @@ async function onStripDoubleClick() {
 
 <template>
   <div
-    class="drag-strip"
+    class="app-shell"
+    :class="{ 'right-open': rightOpen }"
+    @mousedown="onDragMouseDown"
+    @dblclick="onDragDoubleClick"
     data-tauri-drag-region
-    @mousedown="onStripMouseDown"
-    @dblclick="onStripDoubleClick"
-  ></div>
-  <div class="app-shell" :class="{ 'right-open': rightOpen }">
+  >
     <LeftSidebar :dark-mode="darkMode" @toggle-dark="setDark(!darkMode)" />
     <main class="main-stage">
       <RouterView />
@@ -73,24 +72,11 @@ async function onStripDoubleClick() {
 </template>
 
 <style scoped lang="scss">
-.drag-strip {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  // Cover the full overlay-titlebar area. Driven by --titlebar-h so
-  // every component's top padding stays in lockstep.
-  height: var(--titlebar-h, 38px);
-  z-index: 1000;
-  -webkit-app-region: drag;
-  // Defensive: ensure nothing higher up sets pointer-events:none on a
-  // wrapping container. The strip needs hit-testing on for both the
-  // declarative drag and the JS fallback.
-  pointer-events: auto;
-  // Don't draw anything, but keep an explicit (transparent) background
-  // so the element actually receives hit-testing on every platform.
-  background: transparent;
-}
+// No fixed-overlay drag strip anymore — event handlers live on the
+// app-shell and bubble up from any non-interactive element. Buttons,
+// inputs, links etc. short-circuit the drag in the JS handler, so the
+// rest of the chrome (sidebar background, main-stage padding, empty
+// title-bar areas) is grab-and-drag.
 .app-shell {
   display: grid;
   grid-template-columns: 260px 1fr 0px;

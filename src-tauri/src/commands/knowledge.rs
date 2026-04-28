@@ -464,6 +464,122 @@ pub async fn promote_provisional_as_new(
     Ok(id)
 }
 
+// ===========================================================================
+// Manual entity + relationship seeding (Knowledge page admin UI)
+// ===========================================================================
+
+/// Create or update an entity by hand. Same dedup semantics as the
+/// passive extractor: case-insensitive name match across all tables
+/// preserves the original type. Aliases are unioned, description and
+/// content follow the same merge rules as `entities::upsert_entity`.
+#[tauri::command]
+pub async fn upsert_entity_manual(
+    entity_type: String,
+    name: String,
+    aliases: Option<Vec<String>>,
+    description: Option<String>,
+    content: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use std::str::FromStr;
+    let embedder = state
+        .embedder
+        .clone()
+        .ok_or_else(|| "embedder unavailable".to_string())?;
+    let et = mtypes::EntityType::from_str(&entity_type)
+        .map_err(|e| format!("unknown entity_type '{entity_type}': {e}"))?;
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("name is required".into());
+    }
+    let entity = mtypes::Entity {
+        id: None,
+        name: trimmed_name.to_string(),
+        aliases: aliases
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        description: description.filter(|s| !s.trim().is_empty()),
+        content: content.filter(|s| !s.trim().is_empty()),
+        metadata: Default::default(),
+        created_at: None,
+        updated_at: None,
+    };
+    entities::upsert_entity(&state.memex_db, &embedder, &et, &entity)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Edit an existing entity's display fields. `aliases` replaces the
+/// full list (not unioned) so the user can prune stale variants.
+/// `name` is intentionally NOT updatable — renames create a new
+/// canonical row and would need a migration / merge dance.
+#[tauri::command]
+pub async fn update_entity_fields(
+    id: String,
+    aliases: Option<Vec<String>>,
+    description: Option<String>,
+    content: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let aliases_clean: Option<Vec<String>> = aliases.map(|v| {
+        v.into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+    state
+        .memex_db
+        .query(
+            "UPDATE type::thing($id) SET \
+             aliases = IF $aliases = NONE THEN aliases ELSE $aliases END, \
+             description = IF $description = NONE THEN description ELSE $description END, \
+             content = IF $content = NONE THEN content ELSE $content END, \
+             updated_at = time::now()",
+        )
+        .bind(("id", id))
+        .bind(("aliases", aliases_clean))
+        .bind(("description", description))
+        .bind(("content", content))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Soft-delete an entity (sets archived = true). Edges aren't pruned;
+/// the graph view filters archived nodes out via `archived != true`.
+#[tauri::command]
+pub async fn archive_entity(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .memex_db
+        .query("UPDATE type::thing($id) SET archived = true, updated_at = time::now()")
+        .bind(("id", id))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Manually link two entities. Same idempotent semantics as the
+/// agent-driven path: re-creating an existing edge returns the
+/// existing id rather than dup'ing.
+#[tauri::command]
+pub async fn create_relationship_manual(
+    from_id: String,
+    to_id: String,
+    relation: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use std::str::FromStr;
+    let rel_type = mtypes::RelationType::from_str(&relation)
+        .map_err(|e| format!("unknown relation '{relation}': {e}"))?;
+    let metadata = std::collections::HashMap::new();
+    relationships::create_relationship(&state.memex_db, &rel_type, &from_id, &to_id, &metadata)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn ingest_markdown_folder(
     path: Option<String>,

@@ -1,8 +1,60 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useGraphData } from '@/composables/useGraphData'
+import EntitySeedForm from '@/components/knowledge/EntitySeedForm.vue'
+import {
+  RELATION_TYPES,
+  createRelationshipManual,
+  type RelationTypeName,
+} from '@/services/knowledge'
 
-const { selectedEntity, relatedMemories, isLoadingMemories, unfocus } = useGraphData()
+const { selectedEntity, relatedMemories, isLoadingMemories, unfocus, allEntities, refresh } =
+  useGraphData()
+
+const linkRel = ref<RelationTypeName | ''>('')
+const linkTargetId = ref<string>('')
+const linkBusy = ref(false)
+const linkError = ref('')
+
+const linkOptions = computed(() =>
+  [...allEntities.value]
+    .filter((e) => e.id !== selectedEntity.value?.id)
+    .sort((a, b) => a.name.localeCompare(b.name)),
+)
+
+const canLink = computed(
+  () => !!linkRel.value && !!linkTargetId.value && !linkBusy.value && !!selectedEntity.value,
+)
+
+async function addLink() {
+  if (!canLink.value || !selectedEntity.value || !linkRel.value || !linkTargetId.value) return
+  linkBusy.value = true
+  linkError.value = ''
+  try {
+    await createRelationshipManual(
+      selectedEntity.value.id,
+      linkTargetId.value,
+      linkRel.value as RelationTypeName,
+    )
+    linkRel.value = ''
+    linkTargetId.value = ''
+    await refresh()
+  } catch (e: any) {
+    linkError.value = e?.message ?? String(e)
+  } finally {
+    linkBusy.value = false
+  }
+}
+
+// Reset the link form whenever the selected entity changes.
+watch(
+  () => selectedEntity.value?.id,
+  () => {
+    linkRel.value = ''
+    linkTargetId.value = ''
+    linkError.value = ''
+  },
+)
 
 const ENTITY_COLORS: Record<string, string> = {
   person: '#4fc3f7',
@@ -31,7 +83,8 @@ function relativeTime(iso: string): string {
 </script>
 
 <template>
-  <aside v-if="selectedEntity" class="panel">
+  <EntitySeedForm v-if="!selectedEntity" />
+  <aside v-else class="panel">
     <header class="head">
       <div class="title-row">
         <span class="dot" :style="{ background: color }"></span>
@@ -57,6 +110,26 @@ function relativeTime(iso: string): string {
       <h3>Notes</h3>
       <p>{{ selectedEntity.content }}</p>
     </div>
+
+    <section class="add-link">
+      <h3>Link to another entity</h3>
+      <div class="link-row">
+        <select v-model="linkRel" :disabled="linkBusy">
+          <option value="">— relation —</option>
+          <option v-for="r in RELATION_TYPES" :key="r" :value="r">{{ r }}</option>
+        </select>
+        <select v-model="linkTargetId" :disabled="linkBusy || !linkRel">
+          <option value="">— target —</option>
+          <option v-for="ent in linkOptions" :key="ent.id" :value="ent.id">
+            {{ ent.name }} ({{ ent.entity_type }})
+          </option>
+        </select>
+        <button class="add" :disabled="!canLink" @click="addLink">
+          {{ linkBusy ? '…' : 'Link' }}
+        </button>
+      </div>
+      <p v-if="linkError" class="err">{{ linkError }}</p>
+    </section>
 
     <section class="memories">
       <h3>Related memories</h3>
@@ -175,6 +248,49 @@ function relativeTime(iso: string): string {
     line-height: 1.55;
     color: var(--ink);
     white-space: pre-wrap;
+  }
+}
+.add-link {
+  h3 {
+    margin: 0 0 6px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    font-weight: 700;
+  }
+  .link-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 6px;
+    select {
+      background: var(--bg);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-sm, 4px);
+      padding: 5px 6px;
+      font: inherit;
+      font-size: 11.5px;
+      color: var(--ink);
+      &:disabled { opacity: 0.5; }
+    }
+    .add {
+      background: var(--ink);
+      color: var(--bg);
+      border: 0;
+      border-radius: var(--radius-sm, 4px);
+      padding: 4px 12px;
+      font: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      &:disabled { opacity: 0.4; cursor: not-allowed; }
+      &:hover:not(:disabled) { background: var(--accent, #3b82f6); }
+    }
+  }
+  .err {
+    margin: 6px 0 0 0;
+    font-size: 11.5px;
+    color: #ef4444;
   }
 }
 .memories h3 {

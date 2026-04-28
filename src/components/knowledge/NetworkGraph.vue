@@ -112,9 +112,10 @@ onMounted(async () => {
 
     <div v-if="isLoading" class="empty">Loading graph…</div>
     <div v-else-if="nodeCount === 0" class="empty">
-      No entities yet. Send a chat that mentions named people, projects, or
-      organisations — the passive extractor maps them out automatically after
-      each turn. You can also seed entities by hand via the panel on the right.
+      No entities yet. Seed a few by hand using the panel on the right — the
+      extractor's resolver matches new mentions against existing rows, so a
+      handful of pre-seeded anchors sharply improves quality from turn one.
+      Anything you don't seed gets mapped automatically as you chat.
     </div>
     <div v-else class="canvas">
       <VNetworkGraph
