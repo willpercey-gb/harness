@@ -32,3 +32,9 @@ target/
 # Yarn (using yarn.lock)
 .yarn/
 .pnp.*
+
+# Local env files — Sentry DSNs etc. Use `.env.example` as the
+# committed reference for variable names; never commit real values.
+.env
+.env.*
+!.env.example

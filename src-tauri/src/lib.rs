@@ -7,6 +7,29 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Sentry crash + panic reporting. The DSN is baked in at compile
+    // time via `option_env!("SENTRY_DSN")`. Builds without the env
+    // produce a binary where Sentry initialises empty and is a
+    // no-op — public clones don't need any configuration to compile
+    // and run. Held for the program's lifetime via a leaked Box so
+    // the guard's drop (which flushes pending events) doesn't fire
+    // until the process actually exits.
+    let dsn = option_env!("SENTRY_DSN").unwrap_or("");
+    if !dsn.is_empty() {
+        let env = option_env!("SENTRY_ENV").unwrap_or("dev").to_string();
+        let guard = sentry::init((
+            dsn,
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: Some(env.into()),
+                send_default_pii: false,
+                ..Default::default()
+            },
+        ));
+        // Keep the guard alive for the program's lifetime.
+        std::mem::forget(guard);
+    }
+
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {

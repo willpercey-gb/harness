@@ -45,6 +45,20 @@ npm run tauri build
 
 Outputs a `.dmg` / `.msi` / AppImage under `src-tauri/target/release/bundle/`.
 
+### Crash + error reporting (optional)
+
+Both the Rust backend and the Vue frontend will initialise Sentry **only if a DSN is set at build time**. With no DSN, both SDKs initialise as no-ops — fresh clones build and run without any Sentry configuration.
+
+To enable it for your own builds, copy `.env.example` to `.env` and fill in:
+
+```
+SENTRY_DSN=https://…@…ingest.sentry.io/…   # Rust (option_env!)
+VITE_SENTRY_DSN=https://…                  # Vue (Vite inlines VITE_*)
+SENTRY_ENV=production                      # optional, defaults to "dev"
+```
+
+Then `npm run tauri build` (or `npm run tauri dev`). The variables are baked in at compile time, so the resulting binary phones home to Sentry; the source repo stays clean.
+
 ### Tests
 
 ```bash
