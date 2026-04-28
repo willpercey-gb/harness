@@ -112,7 +112,10 @@ onMounted(reload)
     <div v-if="loading" class="empty">Loading memories…</div>
     <div v-else-if="error" class="empty err">{{ error }}</div>
     <div v-else-if="memories.length === 0" class="empty">
-      No memories yet. Ask the agent to <code>remember</code> something — it'll show up here.
+      No memories yet. Have a conversation — the passive extractor saves salient
+      facts after each turn. Ingesting a markdown folder via the
+      <span class="material-symbols-outlined inline-icon">folder_open</span>
+      button above also populates this list.
     </div>
 
     <ul v-else class="entries">
@@ -210,6 +213,11 @@ onMounted(reload)
     padding: 1px 5px;
     border-radius: 3px;
     margin: 0 3px;
+  }
+  .inline-icon {
+    font-size: 14px;
+    vertical-align: middle;
+    margin: 0 2px;
   }
 }
 .entries {

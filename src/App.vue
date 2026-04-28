@@ -112,5 +112,8 @@ async function onStripDoubleClick() {
   height: 100%;
   min-height: 0;
   padding-top: var(--titlebar-h, 32px);
+  // Without this, padding-top adds *on top of* `height: 100%` and the
+  // bottom of the page falls off-screen by exactly --titlebar-h.
+  box-sizing: border-box;
 }
 </style>

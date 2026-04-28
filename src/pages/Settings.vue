@@ -149,8 +149,9 @@ function back() {
       <section class="group">
         <h2 class="group-title">Knowledge store</h2>
         <p class="group-desc">
-          The agent's <code>remember</code> / <code>recall</code> / <code>note_entity</code> tools
-          read and write a SurrealDB graph + vector store. Default location:
+          A SurrealDB graph + vector store that the passive memory extractor
+          writes to after each turn (and that the agent reads from via
+          <code>recall</code> / <code>lookup_entity</code>). Default location:
           <code>~/.harness/memex-db</code>.
         </p>
 

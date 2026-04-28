@@ -112,7 +112,9 @@ onMounted(async () => {
 
     <div v-if="isLoading" class="empty">Loading graph…</div>
     <div v-else-if="nodeCount === 0" class="empty">
-      No entities yet. Ask the agent to <code>note_entity</code> something to populate the graph.
+      No entities yet. Send a chat that mentions named people, projects, or
+      organisations — the passive extractor maps them out automatically after
+      each turn. You can also seed entities by hand via the panel on the right.
     </div>
     <div v-else class="canvas">
       <VNetworkGraph
