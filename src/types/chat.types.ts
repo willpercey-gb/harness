@@ -96,3 +96,24 @@ export type StreamEvent =
   | { kind: 'context_done' }
   | { kind: 'intent_classified'; intent: string; source: 'auto' | 'manual' }
   | { kind: 'session_titled'; session_id: string; title: string }
+  // Stage 4: passive memory extractor (fires after `done`):
+  | { kind: 'memory_extraction_started'; session_id: string }
+  | {
+      kind: 'entity_resolved'
+      name: string
+      entity_type: string
+      status: 'matched' | 'created'
+    }
+  | {
+      kind: 'relationship_created'
+      from_name: string
+      to_name: string
+      relation: string
+    }
+  | { kind: 'memory_stored'; content_preview: string }
+  | {
+      kind: 'memory_extraction_done'
+      entities: number
+      relationships: number
+      memories: number
+    }

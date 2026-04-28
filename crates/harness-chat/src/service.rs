@@ -22,8 +22,7 @@ use crate::context::{xml_envelope, Intent, IntentSource};
 use crate::context_agent::{self, ContextRequest};
 use crate::pipeline::{coalesce_batch, events::*, XmlUnwrap};
 use harness_tools::{
-    Calculator, EmbeddingService, GetTime, HttpFetch, LinkEntities, LookupEntity, MemexDb,
-    NoteEntity, ReadFile, Recall, Remember,
+    Calculator, EmbeddingService, GetTime, HttpFetch, LookupEntity, MemexDb, ReadFile, Recall,
 };
 
 /// How many prior messages we load from harness-storage to seed the
@@ -355,8 +354,13 @@ pub async fn run_chat(
         system: String,
         memex_db: Arc<MemexDb>,
         embedder: Option<Arc<EmbeddingService>>,
-        session_id: String,
+        _session_id: String,
     ) -> strands_core::AgentBuilder {
+        // Note: memory writes are now passive — the stage-4 extractor
+        // observes each turn and updates the graph itself. The main
+        // agent only needs READ access to its memory; `Recall` and
+        // `LookupEntity` stay, `Remember` / `NoteEntity` /
+        // `LinkEntities` are gone on purpose.
         let mut b = b
             .system_prompt(system)
             .tool(GetTime)
@@ -365,25 +369,12 @@ pub async fn run_chat(
             .tool(ReadFile::new(settings.read_file_sandbox_root.clone()))
             .tool(LookupEntity {
                 db: memex_db.clone(),
-            })
-            .tool(LinkEntities {
-                db: memex_db.clone(),
             });
         if let Some(emb) = embedder {
-            b = b
-                .tool(Remember {
-                    db: memex_db.clone(),
-                    embedder: emb.clone(),
-                    session_id: Some(session_id),
-                })
-                .tool(Recall {
-                    db: memex_db.clone(),
-                    embedder: emb.clone(),
-                })
-                .tool(NoteEntity {
-                    db: memex_db,
-                    embedder: emb,
-                });
+            b = b.tool(Recall {
+                db: memex_db,
+                embedder: emb,
+            });
         }
         b
     }
@@ -797,6 +788,51 @@ pub async fn run_chat(
         emit(StreamEvent::Cancelled);
     } else {
         emit(StreamEvent::Done { stop_reason, usage });
+    }
+
+    // ---- Stage 4: passive memory extractor ----
+    //
+    // Fire-and-forget. Runs detached on the tokio runtime so it never
+    // blocks `run_chat`'s return to the user. We only spawn when:
+    //   - the turn wasn't cancelled mid-stream (otherwise full_assistant
+    //     is partial / unreliable),
+    //   - we have an embedder (resolution + memory storage need it),
+    //   - and we got an actual assistant response to extract from.
+    //
+    // The extractor uses a dedicated small Ollama model
+    // (settings.memory_extractor_model) for structured-JSON output
+    // rather than the chat agent's own model — keeps cost predictable
+    // and lets the main response not contend with it for GPU memory.
+    if !cancelled && !full_assistant.is_empty() {
+        if let Some(emb) = embedder.clone() {
+            use crate::memory_agent::{self, ExtractRequest};
+            let mem_db = memex_db.clone();
+            let mem_ctx = conv_context.clone();
+            let mem_user = prompt.clone();
+            let mem_assistant = full_assistant.clone();
+            let mem_session = session_id.clone();
+            let mem_emit = emit.clone();
+            let extractor_model_id = settings.memory_extractor_model.clone();
+            let ollama_host = settings.ollama_host.clone();
+            tokio::spawn(async move {
+                let model: Arc<dyn Model> = Arc::new(
+                    OllamaModel::new(extractor_model_id).with_host(ollama_host),
+                );
+                let req = ExtractRequest {
+                    model,
+                    memex_db: mem_db,
+                    embedder: emb,
+                    conv_context: mem_ctx,
+                    user_turn: mem_user,
+                    assistant_turn: mem_assistant,
+                    session_id: mem_session,
+                    emit: mem_emit,
+                };
+                if let Err(e) = memory_agent::extract(req).await {
+                    tracing::warn!("memory extractor failed: {e}");
+                }
+            });
+        }
     }
 
     ChatRunOutcome { session_id }

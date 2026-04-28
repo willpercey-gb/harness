@@ -7,6 +7,7 @@ import {
 } from '@/services/chat'
 import { useChatStore } from '@/stores/chat'
 import { useContextStore } from '@/stores/context'
+import { useMemoryStore } from '@/stores/memory'
 import type { ChatMessage, StreamEvent, ToolEvent } from '@/types/chat.types'
 import type { Intent } from '@/types/context.types'
 import MarkdownIt from 'markdown-it'
@@ -58,7 +59,11 @@ export default defineComponent({
   name: 'ChatPage',
   components: { AgentSelector, IntentDropdown },
   setup() {
-    return { chat: useChatStore(), context: useContextStore() }
+    return {
+      chat: useChatStore(),
+      context: useContextStore(),
+      memory: useMemoryStore(),
+    }
   },
   data() {
     return {
@@ -199,6 +204,9 @@ export default defineComponent({
       // Mirror context-pipeline events into the context store first;
       // this is independent of the chat message state.
       this.context.applyStreamEvent(e)
+      // Stage-4 (passive memory extractor) events feed the memory
+      // store; the right-sidebar widget reads from there.
+      this.memory.applyStreamEvent(e)
 
       const msg = this.messages[idx]
       if (!msg) return
@@ -241,6 +249,11 @@ export default defineComponent({
         case 'context_aside':
         case 'context_done':
         case 'intent_classified':
+        case 'memory_extraction_started':
+        case 'entity_resolved':
+        case 'relationship_created':
+        case 'memory_stored':
+        case 'memory_extraction_done':
           break
       }
       nextTick(() => this.scrollToBottom())

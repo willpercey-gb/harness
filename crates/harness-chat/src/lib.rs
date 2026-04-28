@@ -4,6 +4,8 @@ pub mod agent_registry;
 pub mod cancel;
 pub mod context;
 pub mod context_agent;
+pub mod memory_agent;
+pub mod memory_resolver;
 pub mod pipeline;
 pub mod service;
 

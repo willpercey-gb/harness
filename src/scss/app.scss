@@ -26,7 +26,11 @@
   --radius-md:    10px;
   --radius-lg:    16px;
   --radius-xl:    22px;
-  --titlebar-h:   32px;
+  // Height of the OS overlay-titlebar drag strip. macOS traffic-light
+  // buttons are ~28px in the default system font + a couple of pixels
+  // of padding; 38px keeps a comfortable grab target without crowding
+  // the UI underneath.
+  --titlebar-h:   38px;
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   font-size: 15px;

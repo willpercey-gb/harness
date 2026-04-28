@@ -13,6 +13,8 @@ strands-claude-cli.workspace = true
 strands-codex-cli.workspace = true
 strands-gemini-cli.workspace = true
 harness-tools.workspace = true
+memex-core = { path = "../../memex-core" }
+surrealdb = { workspace = true }
 dirs = { workspace = true }
 tokio.workspace = true
 tokio-stream.workspace = true

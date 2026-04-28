@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useContextStore } from '@/stores/context'
 import { useChatStore } from '@/stores/chat'
+import { useMemoryStore } from '@/stores/memory'
 import AnchorCard from '@/components/context/AnchorCard.vue'
 import CardList from '@/components/context/CardList.vue'
 import IntentBadge from '@/components/context/IntentBadge.vue'
@@ -11,6 +12,7 @@ defineEmits<{ (e: 'toggle'): void }>()
 
 const ctx = useContextStore()
 const chat = useChatStore()
+const memory = useMemoryStore()
 const hasSession = computed(() => !!chat.currentSessionId)
 </script>
 
@@ -63,6 +65,26 @@ const hasSession = computed(() => !!chat.currentSessionId)
         />
 
         <p v-if="ctx.saveError" class="error">{{ ctx.saveError }}</p>
+
+        <section class="memory" v-if="memory.active || memory.finishedAt">
+          <header>
+            <span class="title">Memory</span>
+            <span v-if="memory.active" class="status active">extracting…</span>
+            <span v-else class="status idle">idle</span>
+          </header>
+          <p class="counts">
+            <strong>{{ memory.entities }}</strong> entities ·
+            <strong>{{ memory.relationships }}</strong> links ·
+            <strong>{{ memory.memories }}</strong> memories
+          </p>
+          <ul v-if="memory.recent.length" class="recent">
+            <li v-for="(r, i) in memory.recent" :key="i" :class="r.kind">
+              <span class="kind">{{ r.kind }}</span>
+              <span class="label">{{ r.label }}</span>
+              <span v-if="r.detail" class="detail">{{ r.detail }}</span>
+            </li>
+          </ul>
+        </section>
       </template>
     </div>
   </aside>
@@ -132,5 +154,80 @@ const hasSession = computed(() => !!chat.currentSessionId)
   font-size: 12px;
   color: #ef4444;
   margin: 0;
+}
+.memory {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .status {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      &.active {
+        color: var(--accent, #3b82f6);
+      }
+      &.idle {
+        color: var(--ink-faint);
+      }
+    }
+  }
+  .counts {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-muted);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+  }
+  .recent {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    li {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 6px;
+      align-items: baseline;
+      font-size: 11.5px;
+      .kind {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 9.5px;
+        color: var(--ink-faint);
+        font-weight: 600;
+      }
+      .label {
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .detail {
+        color: var(--ink-muted);
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 10.5px;
+      }
+      &.entity .kind { color: #3b82f6; }
+      &.relationship .kind { color: #8b5cf6; }
+      &.memory .kind { color: #10b981; }
+    }
+  }
 }
 </style>

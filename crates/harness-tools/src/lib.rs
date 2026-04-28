@@ -11,7 +11,7 @@ pub use builtins::{
     calculator::Calculator,
     get_time::GetTime,
     http_fetch::HttpFetch,
-    memex::{LinkEntities, LookupEntity, NoteEntity, Recall, Remember},
+    memex::{LookupEntity, Recall},
     read_file::ReadFile,
 };
 pub use memex_core::{EmbeddingService, MemexDb};

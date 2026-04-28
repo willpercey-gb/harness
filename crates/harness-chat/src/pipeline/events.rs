@@ -69,6 +69,38 @@ pub enum StreamEvent {
         session_id: String,
         title: String,
     },
+
+    // ---- Stage 4: passive memory extractor (fires after `Done`) ----
+    /// The detached extractor task has started running for this turn.
+    MemoryExtractionStarted { session_id: String },
+    /// One entity processed by the extractor — either matched against an
+    /// existing graph node or created fresh.
+    EntityResolved {
+        name: String,
+        entity_type: String,
+        status: EntityResolutionStatus,
+    },
+    /// One typed relationship written to the graph.
+    RelationshipCreated {
+        from_name: String,
+        to_name: String,
+        relation: String,
+    },
+    /// One memory chunk persisted to the vector store.
+    MemoryStored { content_preview: String },
+    /// Extractor finished; counts summarise what was written.
+    MemoryExtractionDone {
+        entities: u32,
+        relationships: u32,
+        memories: u32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityResolutionStatus {
+    Matched,
+    Created,
 }
 
 #[derive(Debug, Clone, Serialize)]

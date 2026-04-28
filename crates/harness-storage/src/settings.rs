@@ -46,6 +46,18 @@ pub struct Settings {
     /// defaults to `~/.harness/memex-db`.
     #[serde(default)]
     pub memex_db_path: Option<PathBuf>,
+    /// Ollama model id used by the passive memory extractor (stage 4 of
+    /// the per-turn pipeline). Runs detached so latency doesn't matter
+    /// for the user, but accuracy of structured-JSON output does — pick
+    /// something that follows an output schema reliably. Defaults to
+    /// `qwen2.5:7b-instruct`; override in Settings if you've pulled
+    /// something better-suited.
+    #[serde(default = "default_memory_extractor_model")]
+    pub memory_extractor_model: String,
+}
+
+fn default_memory_extractor_model() -> String {
+    "qwen2.5:7b-instruct".into()
 }
 
 impl Default for Settings {
@@ -62,6 +74,7 @@ impl Default for Settings {
             codex_cli_path: None,
             gemini_cli_path: None,
             memex_db_path: None,
+            memory_extractor_model: default_memory_extractor_model(),
         }
     }
 }
